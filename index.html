@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Last Call — AFK 양조소 (슬롯·용병 배치)</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a1410">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="art/stickers/player.png">
 <style>
   /* ─────────── 보기 좋으라고 넣은 최소 스타일 (게임 로직과 무관) ─────────── */
   body {
@@ -1217,6 +1222,13 @@ setInterval(() => { tick(1); render(); }, 1000);
 let autosaveTimer = setInterval(save, 5000);
 window.addEventListener("beforeunload", save);
 save();
+</script>
+
+<!-- PWA: 서비스워커 등록 (홈 화면 추가·오프라인 실행). file://에선 자동 무시됨. -->
+<script>
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 </script>
 </body>
 </html>

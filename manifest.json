@@ -1,0 +1,15 @@
+{
+  "name": "Last Call — 양조소",
+  "short_name": "Last Call",
+  "description": "AFK 양조 게임 (플레이테스트 빌드)",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1410",
+  "theme_color": "#1a1410",
+  "lang": "ko",
+  "icons": [
+    { "src": "art/stickers/player.png", "sizes": "any", "type": "image/png", "purpose": "any" }
+  ]
+}
