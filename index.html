@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Last Call — AFK 양조소 (슬롯·용병 배치)</title>
+<style>
+  /* ─────────── 보기 좋으라고 넣은 최소 스타일 (게임 로직과 무관) ─────────── */
+  body {
+    font-family: "맑은 고딕", system-ui, sans-serif;
+    background: #1a1410; color: #f0e6d2;
+    max-width: 480px; margin: 24px auto; padding: 0 16px;
+    line-height: 1.6;
+  }
+  h1 { font-size: 20px; border-bottom: 2px solid #5a4632; padding-bottom: 8px; }
+  .card {
+    background: #2a2018; border: 1px solid #5a4632; border-radius: 10px;
+    padding: 16px; margin: 12px 0;
+  }
+  .row { display: flex; justify-content: space-between; margin: 6px 0; }
+  .label { color: #c9b896; }
+  .value { font-weight: bold; }
+  button {
+    background: #c9853d; color: #1a1410; border: none; border-radius: 8px;
+    padding: 10px 16px; font-size: 15px; font-weight: bold; cursor: pointer;
+    margin: 4px 4px 4px 0;
+  }
+  button:disabled { background: #4a4038; color: #80766a; cursor: not-allowed; }
+  select {
+    background: #1a1410; color: #f0e6d2; border: 1px solid #5a4632;
+    border-radius: 6px; padding: 6px; font-size: 13px;
+  }
+  .bar-bg { background: #1a1410; border-radius: 6px; height: 14px; overflow: hidden; margin-top: 4px; }
+  .bar-fill { background: #c9853d; height: 100%; width: 0%; transition: width 0.2s; }
+  .log { font-size: 13px; color: #a89878; max-height: 120px; overflow-y: auto; }
+  .dev { font-size: 12px; color: #80766a; border-top: 1px dashed #5a4632; margin-top: 16px; padding-top: 8px; }
+  .status { color: #7fb069; }
+  .status.stop { color: #d96b6b; }
+
+  /* ── 그리드 칸(재료 창고·용병 로스터 공용) ── */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  .cell {
+    background: #1a1410; border: 1px solid #5a4632; border-radius: 6px;
+    padding: 6px 8px; display: flex; justify-content: space-between; font-size: 13px;
+  }
+  .cell .k { color: #c9b896; }
+  .cell .v { font-weight: bold; }
+  .cell.busy { border-color: #7fb069; }
+
+  /* ── 술 창고(읽기 전용 목록) ── */
+  .drink-list { margin-top: 8px; }
+  .drink-row {
+    background: #1a1410; border: 1px solid #5a4632; border-radius: 8px;
+    padding: 6px 10px; margin: 5px 0;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .drink-name { font-weight: bold; }
+  .drink-stock { color: #c9b896; font-size: 13px; }
+  .lack { color: #d96b6b; }
+
+  /* ── 발효 슬롯 / 채집 활동 행 ── */
+  .slot-row, .gather-row {
+    background: #1a1410; border: 1px solid #5a4632; border-radius: 8px;
+    padding: 8px 10px; margin: 6px 0;
+  }
+  .slot-row.active, .gather-row.active { border-color: #7fb069; background: #1f2616; }
+  .slot-head, .gather-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .slot-name, .gather-name { font-weight: bold; }
+  .slot-status, .gather-sub { font-size: 12px; color: #a89878; }
+  .slot-controls { display: flex; gap: 6px; margin: 6px 0; }
+  .slot-controls select { flex: 1; min-width: 0; }
+  .gather-sub { margin-top: 2px; }
+
+  /* ── 온보딩(첫 진입 튜토리얼) 오버레이 ── */
+  .ob-highlight { box-shadow: 0 0 0 2px #c9853d, 0 0 18px #c9853d99 !important; border-color: #c9853d !important; }
+  #ob-overlay { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; pointer-events: none; }
+  .ob-banner {
+    pointer-events: auto; max-width: 480px; margin: 0 auto;
+    background: #2a2018; border: 2px solid #c9853d; border-bottom: none;
+    border-radius: 12px 12px 0 0; padding: 12px 16px; box-shadow: 0 -4px 20px #000a;
+  }
+  .ob-modal-bg {
+    position: fixed; inset: 0; background: #000b; z-index: 1001;
+    display: flex; align-items: center; justify-content: center; pointer-events: auto;
+  }
+  .ob-modal {
+    background: #2a2018; border: 2px solid #c9853d; border-radius: 12px;
+    padding: 20px; max-width: 380px; margin: 16px; line-height: 1.7;
+    max-height: 88vh; overflow-y: auto;
+  }
+  /* 인트로 4컷 프롤로그 */
+  .ob-comic { display: block; width: 100%; max-height: 44vh; object-fit: contain;
+    border-radius: 10px; border: 1px solid #6b4a2e; margin: 2px 0 12px; }
+  .ob-speaker { color: #c9853d; font-weight: bold; }
+  .ob-narr { color: #80766a; font-style: italic; }
+  .ob-line { margin: 6px 0; display: flex; align-items: flex-start; gap: 9px; }
+  .ob-line.ob-narr { display: block; }
+  .ob-face { width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto;
+    border: 2px solid #c9853d; background: #1c1510; box-shadow: 0 1px 4px #0006; }
+  .ob-text { flex: 1; padding-top: 2px; }
+  /* 모달(인트로·졸업)에선 초상화를 약간 크게 */
+  .ob-modal .ob-face { width: 56px; height: 56px; }
+  .ob-hint { margin-top: 10px; color: #7fb069; font-size: 13px; }
+  .ob-step { font-size: 12px; color: #80766a; margin-bottom: 4px; }
+  .ob-banner button, .ob-modal button { width: 100%; margin: 10px 0 0; }
+  /* 이벤트 리액션 스티커 토스트 (우하단 팝업) */
+  .sticker-toast { position: fixed; right: 18px; bottom: 18px; z-index: 1500;
+    width: 132px; height: 132px; pointer-events: none;
+    filter: drop-shadow(0 4px 10px #000a);
+    animation: stickerPop .35s cubic-bezier(.2,1.4,.4,1) both,
+               stickerOut .45s ease forwards var(--hold, 2400ms); }
+  .sticker-toast img { width: 100%; height: 100%; object-fit: contain; }
+  @keyframes stickerPop { from { transform: scale(.4) translateY(22px); opacity: 0; }
+                          to { transform: none; opacity: 1; } }
+  @keyframes stickerOut { to { opacity: 0; transform: translateY(12px) scale(.95); } }
+</style>
+</head>
+<body>
+
+<h1>🍺 Last Call — 양조소</h1>
+
+<!-- ─────────── 주점 / 성장 (명성·자금·승급) ─────────── -->
+<div class="card" id="card-progress">
+  <div class="label">🏰 주점 / 성장</div>
+  <div id="ui-progress"></div>
+</div>
+
+<!-- ─────────── 습격 방어 (전투) ─────────── -->
+<div class="card" id="card-combat">
+  <div class="label">⚔️ 습격 방어 <span style="font-weight:normal;font-size:12px">(영입 용병 전원이 방어 · 전투 버프 반영)</span></div>
+  <div id="ui-combat"></div>
+</div>
+
+<!-- ─────────── 재료 창고 (여러 칸) ─────────── -->
+<div class="card">
+  <div class="label">📦 재료 창고</div>
+  <div class="grid3" id="ui-materials"></div>
+</div>
+
+<!-- ─────────── 용병 로스터 (공용 풀) ─────────── -->
+<div class="card">
+  <div class="label">👥 용병 <span style="font-weight:normal;font-size:12px">(공용 풀 · 1명=1작업)</span></div>
+  <div class="grid3" id="ui-roster"></div>
+</div>
+
+<!-- ─────────── 채집 활동 (용병 배치) ─────────── -->
+<div class="card" id="card-gather">
+  <div class="label">⛏️ 채집 활동 <span style="font-weight:normal;font-size:12px">(용병을 배치하면 시간당 재료 생산)</span></div>
+  <div id="ui-gathering"></div>
+</div>
+
+<!-- ─────────── 발효 슬롯 (용병 배치 + 동시 양조) ─────────── -->
+<div class="card" id="card-brew">
+  <div class="label">🍺 발효 슬롯 <span style="font-weight:normal;font-size:12px">(주점 단계 <span id="ui-stage">1</span> · 슬롯 <span id="ui-slotcount">1</span>칸)</span></div>
+  <div id="ui-brew-slots"></div>
+</div>
+
+<!-- ─────────── 스킬 (용병별 양조·조달 레벨) ─────────── -->
+<div class="card">
+  <div class="label">📈 스킬 <span style="font-weight:normal;font-size:12px">(활동하면 XP 적립·레벨업 → 속도·산출 ↑)</span></div>
+  <div id="ui-skills"></div>
+</div>
+
+<!-- ─────────── 술 창고 (종류별 재고, 읽기 전용) ─────────── -->
+<div class="card">
+  <div class="label">🍶 술 창고 <span style="font-weight:normal;font-size:12px">(종류당 최대 99병)</span></div>
+  <div class="drink-list" id="ui-drink-list"></div>
+</div>
+
+<!-- ─────────── 버프 (술 따르기) ─────────── -->
+<div class="card" id="card-buff">
+  <div class="label">🍹 버프 <span style="font-weight:normal;font-size:12px">(술을 따르면 1병 소비·효과 발동 · 동시 3슬롯 · 같은 계열 중복 불가)</span></div>
+  <div id="ui-buffs"></div>
+</div>
+
+<!-- ─────────── 로그 ─────────── -->
+<div class="card">
+  <div class="label">기록</div>
+  <div class="log" id="ui-log"></div>
+</div>
+
+<!-- ─────────── 개발용 도구 (출시 때 삭제) ─────────── -->
+<div class="dev">
+  <button id="btn-stage">[개발] 주점 단계 ▲</button>
+  <button id="btn-grant">[개발] 승급 재화 지급</button>
+  <button id="btn-raid">[개발] 습격 발생</button>
+  <button id="btn-onboard">[개발] 온보딩 리셋</button>
+  <button id="btn-addmat">[개발] 모든 재료 +30</button>
+  <button id="btn-reset">[개발] 저장 초기화</button>
+  <div>마지막 저장: <span id="ui-saved"></span></div>
+</div>
+
+<!-- 온보딩(첫 진입 튜토리얼) 오버레이 — 게임 로직 위에 얹는 계층 -->
+<div id="ob-overlay"></div>
+
+<!-- ① 데이터: 술·채집·용병·발효설정을 별도 파일에서 불러옵니다.
+     스크립트 태그는 file:// 더블클릭에서도 막히지 않으므로 서버가 필요 없습니다. -->
+<script src="drinks.js"></script>
+<script src="gathering.js"></script>
+<script src="characters.js"></script>
+<script src="fermentation.js"></script>
+<script src="progression.js"></script>
+<script src="skills.js"></script>
+<script src="combat.js"></script>
+
+<script>
+/* ============================================================================
+   Last Call — AFK 양조 엔진 (발효 슬롯 배열 + 용병 배치)
+   읽는 순서 → ① 데이터/파생 → ② 상태 → ③ 배치 헬퍼 → ④ 엔진(tick) → ⑤ 저장/복귀 → ⑥ 화면
+   ============================================================================ */
+
+
+/* ── ① 데이터 / 파생 ─────────────────────────────────────────────────────── */
+// 술 재료(drinks.js) + 채집 산출물(gathering.js)을 모두 훑어 "재료 종류"를 모은다.
+const ALL_MATERIALS = (() => {
+  const list = [];
+  const add = m => { if (!list.includes(m)) list.push(m); };
+  for (const id in DRINKS)    for (const mat in DRINKS[id].mat)       add(mat);
+  for (const id in GATHERING) for (const mat in GATHERING[id].yields) add(mat);
+  return list;
+})();
+
+/* ── 전역 규칙 (balance JSON) ─────────────────────────────────────────────── */
+const STOCK_MAX = 99;              // drink_stock_max_per_type
+const OFFLINE_HARDCAP_H = 36;      // offline_hardcap_hours
+const START_MATERIAL = 30;         // 새 게임 시 각 재료 시작 보유량
+const MAT_CAP = 9999;              // storage_cap_per_material
+
+/* ── 오프라인 효율 구간 (economy.offline_efficiency / offline_base_hours) ── */
+const OFFLINE_BASE_H = 24, OFFLINE_FULL_H = 6, OFFLINE_EFF_HIGH = 0.95, OFFLINE_EFF_LOW = 0.85;
+
+// ⚙️ 개발용 시간 배속 (출시 때 1로): 3600초 ÷ 1200 = 3초마다 1병(1시간짜리·보너스 0 기준)
+const TIME_SCALE = 1200;
+
+
+/* ── ② 게임 상태 ──────────────────────────────────────────────────────────
+   materials    : 재료 창고 { 재료: 수량 }
+   drinks       : 술 창고   { 술id: 병수 }
+   tavernStage  : 주점 단계(1~6) → 발효·채집 슬롯 수 결정
+   brewSlots    : 발효 슬롯 배열 [ { charId, drinkId, progressSec } ]  ← 슬롯마다 독립 양조
+   gatherAssign : 채집 배치   { 활동id: charId|null }                 ← 활동마다 용병 1명
+   ※ brewSlots/gatherAssign의 용병은 공용 풀에서 1명=1작업 (충돌 방지)                */
+function slotCount(stage = state.tavernStage) {
+  return FERMENTATION.slot_count_by_stage[stage] || 1;
+}
+function freshState() {
+  const materials = {}; ALL_MATERIALS.forEach(m => materials[m] = START_MATERIAL);
+  const drinks = {};    Object.keys(DRINKS).forEach(id => drinks[id] = 0);
+  const gatherAssign = {}; Object.keys(GATHERING).forEach(id => gatherAssign[id] = null);
+  const firstDrink = Object.keys(DRINKS)[0];
+  const brewSlots = [];
+  for (let i = 0; i < slotCount(1); i++) brewSlots.push({ charId: null, drinkId: firstDrink, progressSec: 0, cooldownSec: 0 });
+  const buffSlots = [];                         // 버프 슬롯(BUFF.slots개). null=빈 슬롯.
+  for (let i = 0; i < BUFF.slots; i++) buffSlots.push(null);
+  return {
+    materials, drinks, tavernStage: 1, brewSlots, gatherAssign, buffSlots,
+    reputation: 0,            // 명성(비소비 누적 점수)
+    funds: 0,                 // 자금(승급 비용·소비)
+    skills: freshSkills(),    // 용병별 스킬 { charId: { 양조, 조달, 전투 : {lv,xp} } }
+    combat: freshCombat(),    // 전투 상태(방벽·습격 타이머·부상 등)
+    onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
+    lastSaved: Date.now()
+  };
+}
+// 용병별 스킬 초기값: 양조=brewLevel, 조달=gatherLevel, 전투=combatLevel 에서 시작.
+function freshSkills() {
+  const s = {};
+  for (const id in CHARACTERS) {
+    const c = CHARACTERS[id];
+    s[id] = { 양조: { lv: c.brewLevel, xp: 0 }, 조달: { lv: c.gatherLevel, xp: 0 }, 전투: { lv: c.combatLevel || 1, xp: 0 } };
+  }
+  return s;
+}
+// 전투 상태 초기값
+function freshCombat() {
+  return {
+    wall: COMBAT.wall_durability_max, // 방벽 내구도(0~100)
+    raidTimerSec: peaceIntervalSec(),  // 다음 습격까지(현재 배속 실초)
+    cooldownSec: 0,                    // 패배 후 다음 습격 유예
+    consecutiveClears: 0,              // 연속 격퇴(적 전력 가감)
+    clears: 0,                         // 누적 격퇴 횟수
+    injured: {},                       // { charId: 회복까지 실초 }
+    lastResult: ""                     // 최근 전투 결과(표시용)
+  };
+}
+// 평화 구간(6~12게임시간)을 현재 배속 실초로
+function peaceIntervalSec() {
+  const h = COMBAT.peace_interval_h.min + Math.random() * (COMBAT.peace_interval_h.max - COMBAT.peace_interval_h.min);
+  return h * 3600 / TIME_SCALE;
+}
+let state = freshState();
+
+
+/* ── ③ 배치 헬퍼 (공용 용병 풀 · 1명=1작업) ──────────────────────────────── */
+// 현재 배치된(=일하는) 용병 id 집합
+function assignedCharIds() {
+  const set = new Set();
+  state.brewSlots.forEach(s => { if (s.charId) set.add(s.charId); });
+  for (const act in state.gatherAssign) if (state.gatherAssign[act]) set.add(state.gatherAssign[act]);
+  return set;
+}
+function isCharFree(id) { return !assignedCharIds().has(id); }
+function activeGatherCount() { return Object.values(state.gatherAssign).filter(Boolean).length; }
+function gatherSlotCount() { return slotCount(); }
+
+/* ── 스킬 헬퍼 (용병별 동적 레벨/XP) ─────────────────────────────────────── */
+// 현재 스킬 레벨(세이브에 없으면 characters.js 기본값으로 폴백)
+function skillLv(charId, skill) {
+  const s = state.skills && state.skills[charId] && state.skills[charId][skill];
+  if (s) return s.lv;
+  const c = CHARACTERS[charId];
+  return skill === "양조" ? (c ? c.brewLevel : 1) : (c ? c.gatherLevel : 1);
+}
+// XP 적립 + 레벨업(누적 XP가 충분하면 연속 레벨업). 활동 종료 시 호출.
+function addSkillXp(charId, skill, amount) {
+  const node = state.skills && state.skills[charId] && state.skills[charId][skill];
+  if (!node || amount <= 0) return;
+  node.xp += amount;
+  while (node.lv < SKILLS.level_max && node.xp >= SKILLS.xpToNext(node.lv)) {
+    node.xp -= SKILLS.xpToNext(node.lv);
+    node.lv++;
+    log(`📈 ${CHARACTERS[charId].name} ${skill} Lv.${node.lv} 달성!`);
+  }
+  if (node.lv >= SKILLS.level_max) node.xp = 0;
+}
+// 조달 스킬 레벨 보너스(가산): (조달Lv-1)×0.5%p, 캡 +120%
+function gatherSkillBonus(charId) {
+  return Math.min(SKILLS.rate_cap, (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level);
+}
+
+// 양조 속도 보너스(가산): (양조Lv-1)×0.5%p + 술도사 +50%, 상한 +120%
+// 확정 공식 core_formulas.brewing_speed_per_level: (Lv-1)×0.5%p → Lv.1 +0%, Lv.99 +49%
+function brewSpeedBonus(charId) {
+  const c = CHARACTERS[charId];
+  let b = (skillLv(charId, "양조") - 1) * FERMENTATION.brew_speed_per_level;
+  if (c && c.brewmaster) b += FERMENTATION.brewmaster_passive_speed;
+  return Math.min(FERMENTATION.speed_additive_cap, b);
+}
+// 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
+function effBrewSeconds(drink, charId) { return drink.brewSeconds / (1 + brewSpeedBonus(charId)); }
+
+// 발효 슬롯 수를 주점 단계에 맞춘다(부족하면 빈 슬롯 추가, 줄면 잘라낸다)
+function syncBrewSlots() {
+  const want = slotCount();
+  const firstDrink = Object.keys(DRINKS)[0];
+  while (state.brewSlots.length < want) state.brewSlots.push({ charId: null, drinkId: firstDrink, progressSec: 0 });
+  if (state.brewSlots.length > want) state.brewSlots.length = want;
+}
+
+// 세이브 복원 후 배치 정합성 정리: 존재하지 않는 용병/술 제거, 중복 배치 해제, 채집 슬롯 상한 강제
+function reconcileAssignments() {
+  const seen = new Set();
+  state.brewSlots.forEach(slot => {
+    if (slot.charId && (!CHARACTERS[slot.charId] || seen.has(slot.charId) || isInjured(slot.charId))) slot.charId = null;
+    if (slot.charId) seen.add(slot.charId);
+    if (!DRINKS[slot.drinkId]) { slot.drinkId = Object.keys(DRINKS)[0]; slot.progressSec = 0; }
+  });
+  let g = 0;
+  for (const act of Object.keys(GATHERING)) {
+    const c = state.gatherAssign[act];
+    if (c && (!CHARACTERS[c] || seen.has(c) || isInjured(c) || g >= gatherSlotCount())) { state.gatherAssign[act] = null; continue; }
+    if (c) { seen.add(c); g++; }
+  }
+}
+
+
+/* ── 버프(술 따르기) 헬퍼 ────────────────────────────────────────────────── */
+// 버프 지속(초, 현재 배속 기준). duration_h(=brewSeconds/3600) 카운트다운을 게임과 같은 배속으로.
+function buffDurationSec(drink) { return drink.brewSeconds / TIME_SCALE; }
+// 어떤 술이 이미 활성인가 / 같은 계열이 활성인가 (중복·동계열 차단용)
+function isDrinkActive(drinkId) { return state.buffSlots.some(b => b && b.drinkId === drinkId); }
+function isSeriesActive(series, exceptSlot) {
+  return state.buffSlots.some((b, i) => b && i !== exceptSlot && DRINKS[b.drinkId].series === series);
+}
+// 채집 활동에 걸린 버프 배수(곱연산). 활성 버프 중 그 활동을 대상으로 하는 것들을 곱한다.
+function gatherBuffMultiplier(activityId) {
+  let mult = 1;
+  for (const b of state.buffSlots) {
+    if (!b || b.raid) continue;                       // raid형은 평시 효과 미발동
+    const buff = DRINKS[b.drinkId].buff;
+    if (buff && buff.kind === "gather" && buff.targets.includes(activityId)) mult *= (1 + buff.pct);
+  }
+  return mult;
+}
+
+/* ── 폭발 헬퍼 ───────────────────────────────────────────────────────────── */
+// 폭발은 '슬라임 종족 용병이 양조하는 슬롯'에서만 발생(레시피 무관, t13 "몸으로 발효").
+// 비슬라임 용병이 양조하면 폭발 없음. 슬라임 '가끔 면역' 패시브로 발생분이 일부 완화.
+function explosionChance(char) {
+  const ex = FERMENTATION.explosion;
+  if (!char || char.race !== "슬라임") return 0;     // 슬라임만 폭발
+  // (마스터리 풀 100% → 0% : 마스터리 시스템 도입 후 연결)
+  return ex.base_rate * (1 - (ex.slime_self_immune_chance || 0));
+}
+
+
+/* ── 전투(습격 방어) 엔진 ────────────────────────────────────────────────── */
+function isInjured(id) { return !!(state.combat.injured && state.combat.injured[id]); }
+function isRecruited(id) { return Object.keys(CHARACTERS).indexOf(id) < stageMercSlots(state.tavernStage); }
+// 방어 참여 용병 = 영입됨 + 비부상 (모두가 주점을 지킨다)
+function defenderIds() { return Object.keys(CHARACTERS).filter(id => isRecruited(id) && !isInjured(id)); }
+
+// 활성 버프의 전투 기여 합산 (시간형 + raid형 모두 습격 시 발동)
+function combatBuffTotals() {
+  let atk = 0, survive = 0, trap = 0;
+  for (const b of state.buffSlots) {
+    if (!b) continue;
+    const cb = COMBAT.buffs[b.drinkId];
+    if (cb) { atk += cb.atk || 0; survive += cb.survive || 0; trap += cb.trap || 0; }
+  }
+  return { atk, survive, trap };
+}
+// 아군 방어 전력 = P_base × M_atk × M_survive × M_audience × M_account (resolution 공식)
+function allyPower() {
+  const bt = combatBuffTotals();
+  let pBase = 0;
+  defenderIds().forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")));
+  // 함정(미설치)·망루(미건설)는 0 — 시스템 도입 시 P_base에 가산
+  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk);          // +150% 캡
+  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive); // +100% 캡
+  const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
+  const mAccount = 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k);
+  return pBase * mAtk * mSurvive * mAudience * mAccount;
+}
+// 적 전력 배율 (raid_modifiers): 명성 1000당 +5% + 2연속격퇴 시 +15%
+function enemyPowerMult() {
+  return 1 + (state.reputation / 1000) * COMBAT.enemy_rep_per_1000
+           + (state.combat.consecutiveClears >= 2 ? COMBAT.enemy_consecutive_bonus : 0);
+}
+// 일반 습격 티어 = raid_schedule.tier_by_stage (단계별 허용 티어 중 무작위). 면제 단계면 0.
+function pickTier() {
+  const tiers = COMBAT.tier_by_stage[state.tavernStage] || [];
+  if (!tiers.length) return 0;
+  return tiers[Math.floor(Math.random() * tiers.length)];
+}
+function injureMerc(id) {
+  state.combat.injured[id] = COMBAT.injury_recovery_h * 3600 / TIME_SCALE;
+  state.brewSlots.forEach(s => { if (s.charId === id) s.charId = null; });   // 슬롯 자동 정지
+  for (const act in state.gatherAssign) if (state.gatherAssign[act] === id) state.gatherAssign[act] = null;
+}
+function distributeCombatXp(tier, lost) {
+  const pool = defenderIds(); if (!pool.length) return;
+  const each = (COMBAT.xp_by_tier[tier] * (lost ? 0.5 : 1)) / pool.length;  // 참여 용병 분배(패배 50%)
+  pool.forEach(id => addSkillXp(id, "전투", each));
+}
+function applyDefeat(severe, ally, enemy, ratio, tag) {
+  const d = severe ? COMBAT.defeat.완패 : COMBAT.defeat.패배;
+  const absorb = state.combat.wall > 0 ? COMBAT.wall_absorb_ratio : 0;       // 방벽 생존 시 흡수
+  const drinkLoss = d.lootDrink * (1 - absorb), fundsLoss = d.lootFunds * (1 - absorb);
+  Object.keys(state.drinks).forEach(id => state.drinks[id] = Math.floor((state.drinks[id] || 0) * (1 - drinkLoss)));
+  state.funds = Math.floor(state.funds * (1 - fundsLoss));
+  state.combat.wall = Math.max(0, state.combat.wall - d.wall);
+  state.combat.cooldownSec += d.cooldown_h * 3600 / TIME_SCALE;
+  let inj = "";
+  if (d.injure > 0) {
+    const pool = defenderIds();
+    if (pool.length) { const v = pool[Math.floor(Math.random() * pool.length)]; injureMerc(v); inj = `·${CHARACTERS[v].name} 부상(2h)`; }
+  }
+  state.combat.consecutiveClears = 0;
+  state.combat.lastResult = `${tag} ${severe ? "완패" : "패배"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 술 -${Math.round(drinkLoss * 100)}%·자금 -${Math.round(fundsLoss * 100)}%·방벽 -${d.wall}${inj}`;
+  log(`🛡️ ${state.combat.lastResult}`);
+}
+function resolveRaid() {
+  const tier = pickTier();
+  if (!tier) return;                          // 면제 단계(1단계 등)는 습격 없음
+  const et = COMBAT.enemy_tiers[tier - 1], tag = `[T${tier} ${et.name}]`;
+  const ally = allyPower();
+  const enemy = (et.power.min + Math.random() * (et.power.max - et.power.min)) * enemyPowerMult();
+  const ratio = enemy > 0 ? ally / enemy : 99;
+  if (ratio >= 1.0) {                                                        // 격퇴(승)
+    const funds = Math.round(et.funds.min + Math.random() * (et.funds.max - et.funds.min));
+    state.funds += funds;
+    state.reputation += COMBAT.rep_by_tier[tier];
+    distributeCombatXp(tier, false);
+    state.combat.consecutiveClears++;
+    state.combat.clears++;
+    state.combat.lastResult = `${tag} ${ratio >= 1.5 ? "완전 격퇴" : "신승"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 자금 +${funds}, 명성 +${COMBAT.rep_by_tier[tier]}`;
+    log(`⚔️ ${state.combat.lastResult}`);
+    showSticker("jin");                                                      // 격퇴 — 진
+  } else {                                                                   // 패배/완패
+    applyDefeat(ratio < COMBAT.defeat.패배.min, ally, enemy, ratio, tag);
+    distributeCombatXp(tier, true);
+    showSticker("player");                                                   // 패배 — 용병 "힐, 잠깐만요!!?"
+  }
+}
+// 습격 타이머·부상 회복·패배 유예를 dtSec만큼 진행 (오프라인 큰 dt면 여러 습격 정산)
+function tickCombat(dtSec) {
+  for (const id in state.combat.injured) {
+    state.combat.injured[id] -= dtSec;
+    if (state.combat.injured[id] <= 0) { delete state.combat.injured[id]; log(`🩹 ${CHARACTERS[id].name} 부상 회복 — 배치 가능.`); }
+  }
+  // first_raid_grace: 첫 습격은 2단계 승급 후 — 그 전(1단계)엔 습격 면제(타이머도 정지)
+  if (state.tavernStage < COMBAT.first_raid_min_stage) return;
+  if (state.combat.cooldownSec > 0) {           // 패배 유예 중엔 습격 정지
+    state.combat.cooldownSec -= dtSec;
+    if (state.combat.cooldownSec > 0) return;
+    state.combat.cooldownSec = 0;
+  }
+  state.combat.raidTimerSec -= dtSec;
+  let guard = 0;
+  while (state.combat.raidTimerSec <= 0 && guard++ < 200) {
+    resolveRaid();
+    state.combat.raidTimerSec += peaceIntervalSec();
+    if (state.combat.cooldownSec > 0) break;     // 이번 습격이 패배라 유예 걸리면 중단
+  }
+}
+function repairWall() {
+  const missing = COMBAT.wall_durability_max - state.combat.wall;
+  if (missing <= 0) { log("방벽이 이미 온전합니다."); return; }
+  const cost = missing * COMBAT.wall_repair_cost_per_point;
+  if (state.funds < cost) { log(`방벽 수리에 자금 ${cost} 필요 (보유 ${Math.floor(state.funds)}).`); render(); return; }
+  state.funds -= cost; state.combat.wall = COMBAT.wall_durability_max;
+  log(`🧱 방벽 수리 완료 (자금 -${cost}).`); render();
+}
+
+
+/* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
+   버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
+function tick(dtSec) {
+  tickBuffs(dtSec);
+  tickGathering(dtSec);
+  tickBrewSlots(dtSec);
+  tickCombat(dtSec);
+}
+
+// 버프 만료: 시간형 버프의 남은시간을 dtSec만큼 깎고, 0 이하가 되면 해제. raid형은 카운트다운 없음.
+function tickBuffs(dtSec) {
+  state.buffSlots.forEach((b, i) => {
+    if (!b || b.raid) return;
+    b.remainingSec -= dtSec;
+    if (b.remainingSec <= 0) {
+      log(`🍹 ${DRINKS[b.drinkId].name} 버프가 만료되었습니다.`);
+      state.buffSlots[i] = null;
+    }
+  });
+}
+function dtSecToGameHours(dtSec) { return dtSec * TIME_SCALE / 3600; }
+
+// 채집: 용병이 배치된 활동만 yields의 rate_per_h × 게임시간(h) 만큼 생산
+function tickGathering(dtSec) {
+  const gameH = dtSecToGameHours(dtSec);
+  if (gameH <= 0) return;
+  for (const actId in GATHERING) {
+    const cid = state.gatherAssign[actId];
+    if (!cid) continue;                           // 미배치 활동은 정지
+    // 조달 스킬 레벨(가산) × 술 버프(곱연산) — _meta.convention 준수
+    const mult = (1 + gatherSkillBonus(cid)) * gatherBuffMultiplier(actId);
+    const lv = skillLv(cid, "조달");
+    const yields = GATHERING[actId].yields;
+    let units = 0;
+    for (const mat in yields) {
+      if (lv < (yields[mat].unlock_lv || 1)) continue;  // 조달 레벨 < 재료 unlock_lv → 미해금(생산 안 함)
+      const add = yields[mat].rate_per_h * gameH * mult;
+      const next = (state.materials[mat] || 0) + add;
+      state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
+      units += add;
+    }
+    addSkillXp(cid, "조달", units * SKILLS.gather_xp_per_material);  // 채집 재료 1개당 조달 XP 3
+  }
+}
+
+// 양조: 슬롯마다 독립 진행. 용병 미배치 슬롯은 정지. 재료 부족·창고 가득이면 진행도 100%로 대기.
+function tickBrewSlots(dtSec) {
+  for (const slot of state.brewSlots) {
+    if (!slot.charId) continue;                   // 빈 슬롯 정지
+    // 폭발 정리(cleanup) 쿨다운 중이면 그 시간만큼 깎고 가동 정지
+    if (slot.cooldownSec > 0) {
+      slot.cooldownSec -= dtSec;
+      if (slot.cooldownSec > 0) continue;
+      slot.cooldownSec = 0;
+    }
+    const char = CHARACTERS[slot.charId];
+    const drink = DRINKS[slot.drinkId];
+    if (!char || !drink) continue;
+    if (skillLv(slot.charId, "양조") < (drink.brewReqLv || 1)) continue;  // 양조 레벨 부족 → 양조 대기
+    const oneBottleSec = effBrewSeconds(drink, slot.charId) / TIME_SCALE;
+
+    slot.progressSec += dtSec;
+    while (slot.progressSec >= oneBottleSec) {
+      const id = slot.drinkId;
+      if ((state.drinks[id] || 0) >= STOCK_MAX) { slot.progressSec = oneBottleSec; break; } // 가득 → 대기
+      if (!hasMaterials(drink))                 { slot.progressSec = oneBottleSec; break; } // 부족 → 대기
+      payMaterials(drink);                        // 재료 투입(폭발해도 100% 손실)
+      if (Math.random() < explosionChance(char)) {
+        // 💥 폭발: 수율 0, 진행도 리셋, 슬롯 5분(게임시간) 정리
+        log(`💥 ${char.name}의 ${drink.name} 양조가 폭발! 재료가 날아갔어요(스탯 페널티 없음).`);
+        slot.progressSec = 0;
+        slot.cooldownSec = (FERMENTATION.explosion.cleanup_min * 60) / TIME_SCALE;
+        break;
+      }
+      state.drinks[id] = (state.drinks[id] || 0) + 1;
+      addSkillXp(slot.charId, "양조", brewingXpForLevel(skillLv(slot.charId, "양조")));  // 양조 XP 적립
+      slot.progressSec -= oneBottleSec;
+    }
+  }
+}
+
+function hasMaterials(drink) {
+  for (const mat in drink.mat) if ((state.materials[mat] || 0) < drink.mat[mat]) return false;
+  return true;
+}
+function payMaterials(drink) {
+  for (const mat in drink.mat) state.materials[mat] = (state.materials[mat] || 0) - drink.mat[mat];
+}
+
+
+/* ── ⑤ 저장 / 복귀 ───────────────────────────────────────────────────────── */
+function save() {
+  state.lastSaved = Date.now();
+  localStorage.setItem("lastcall_save", JSON.stringify(state));
+  document.getElementById("ui-saved").textContent = new Date(state.lastSaved).toLocaleString();
+}
+function normalizeKeys(obj) {
+  if (!obj || typeof obj !== "object") return {};
+  const out = {};
+  for (const k in obj) out[k.normalize("NFC")] = obj[k];
+  return out;
+}
+
+function load() {
+  const raw = localStorage.getItem("lastcall_save");
+  if (!raw) return;
+  const saved = JSON.parse(raw);
+  state = freshState();
+
+  // 재료 / 술 창고
+  if (saved.materials) Object.assign(state.materials, normalizeKeys(saved.materials));
+  if (saved.drinks)    Object.assign(state.drinks,    normalizeKeys(saved.drinks));
+  // 아주 구형(inventory 혼합) 호환
+  if (saved.inventory) {
+    const inv = normalizeKeys(saved.inventory);
+    for (const k in inv) (k in DRINKS ? state.drinks : state.materials)[k] = inv[k];
+  }
+
+  // 주점 단계 → 슬롯 수
+  state.tavernStage = Math.min(6, Math.max(1, saved.tavernStage || 1));
+  syncBrewSlots();
+
+  // 발효 슬롯 복원 (신형). 술 id NFC 정규화.
+  if (Array.isArray(saved.brewSlots)) {
+    saved.brewSlots.forEach((s, i) => {
+      if (i >= state.brewSlots.length) return;
+      const did = (s.drinkId || "").normalize("NFC");
+      state.brewSlots[i] = {
+        charId: s.charId && CHARACTERS[s.charId] ? s.charId : null,
+        drinkId: DRINKS[did] ? did : Object.keys(DRINKS)[0],
+        progressSec: s.progressSec || 0,
+        cooldownSec: s.cooldownSec || 0
+      };
+    });
+  } else if (saved.brewing && saved.brewing.drinkId) {
+    // 구형 단일 brewing → 0번 슬롯의 술/진행도로 이관(용병은 미배치 상태로 일시정지)
+    const did = saved.brewing.drinkId.normalize("NFC");
+    if (DRINKS[did]) { state.brewSlots[0].drinkId = did; state.brewSlots[0].progressSec = saved.brewing.progressSec || 0; }
+  }
+
+  // 채집 배치 복원 (신형). 구형 bool 토글(saved.gathering)은 용병 개념이 없어 폐기(미배치로 시작).
+  if (saved.gatherAssign) {
+    for (const act in state.gatherAssign) {
+      const c = saved.gatherAssign[act];
+      if (c && CHARACTERS[c]) state.gatherAssign[act] = c;
+    }
+  }
+
+  // 버프 슬롯 복원 (신형). 존재하지 않는 술은 버림. raid형은 카운트다운 없이 유지.
+  if (Array.isArray(saved.buffSlots)) {
+    saved.buffSlots.forEach((b, i) => {
+      if (i >= state.buffSlots.length || !b) return;
+      const did = (b.drinkId || "").normalize("NFC");
+      if (!DRINKS[did]) return;
+      state.buffSlots[i] = b.raid ? { drinkId: did, raid: true }
+                                  : { drinkId: did, remainingSec: b.remainingSec || 0 };
+    });
+  }
+
+  // 성장축 복원 (신형). 구형 세이브엔 없으므로 freshState 기본값(명성 0·자금 0·기본 스킬) 유지.
+  if (typeof saved.reputation === "number") state.reputation = saved.reputation;
+  if (typeof saved.funds === "number")      state.funds = saved.funds;
+  if (saved.skills) {
+    for (const id in state.skills) {
+      const sv = saved.skills[id];
+      if (!sv) continue;
+      ["양조", "조달", "전투"].forEach(sk => {
+        if (sv[sk] && typeof sv[sk].lv === "number") {
+          state.skills[id][sk].lv = Math.min(SKILLS.level_max, Math.max(1, sv[sk].lv));
+          state.skills[id][sk].xp = sv[sk].xp || 0;
+        }
+      });
+    }
+  }
+
+  // 전투 상태 복원 (구형 세이브엔 없으므로 freshCombat 기본값 유지)
+  if (saved.combat) {
+    const sc = saved.combat;
+    if (typeof sc.wall === "number") state.combat.wall = Math.min(COMBAT.wall_durability_max, Math.max(0, sc.wall));
+    if (typeof sc.raidTimerSec === "number") state.combat.raidTimerSec = sc.raidTimerSec;
+    if (typeof sc.cooldownSec === "number") state.combat.cooldownSec = sc.cooldownSec;
+    if (typeof sc.consecutiveClears === "number") state.combat.consecutiveClears = sc.consecutiveClears;
+    if (typeof sc.clears === "number") state.combat.clears = sc.clears;
+    if (typeof sc.lastResult === "string") state.combat.lastResult = sc.lastResult;
+    if (sc.injured && typeof sc.injured === "object") {
+      for (const id in sc.injured) if (CHARACTERS[id] && typeof sc.injured[id] === "number") state.combat.injured[id] = sc.injured[id];
+    }
+  }
+
+  // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
+  if (saved.onboarding) {
+    state.onboarding = { step: saved.onboarding.step || 1, done: !!saved.onboarding.done };
+    // 구 8스텝 세이브 → 신 7스텝: 전투 대비(구5) 제거로 6 이상 스텝은 -1
+    if (state.onboarding.step >= 6) state.onboarding.step -= 1;
+  } else {
+    state.onboarding = { step: 1, done: true };
+  }
+
+  reconcileAssignments();   // 중복/유령/부상 배치 정리 + 채집 슬롯 상한
+  state.lastSaved = saved.lastSaved || Date.now();
+
+  // ── 오프라인 정산 (efficiency 적용) ──
+  const realSec = (Date.now() - state.lastSaved) / 1000;
+  if (realSec < 1) return;
+  const cappedSec = Math.min(realSec, OFFLINE_HARDCAP_H * 3600);
+  const productiveSec = Math.min(cappedSec, OFFLINE_BASE_H * 3600);
+  const productiveH = productiveSec / 3600;
+  let efficiency = 1.0;
+  if (productiveH > OFFLINE_FULL_H) {
+    const t = (productiveH - OFFLINE_FULL_H) / (OFFLINE_BASE_H - OFFLINE_FULL_H);
+    efficiency = OFFLINE_EFF_HIGH - t * (OFFLINE_EFF_HIGH - OFFLINE_EFF_LOW);
+  }
+  const effectiveSec = productiveSec * efficiency;
+
+  // 정산 전후 비교(전체 술 병수 / 전체 재료량)
+  const beerBefore = Object.values(state.drinks).reduce((a, b) => a + b, 0);
+  const matBefore = ALL_MATERIALS.reduce((s, m) => s + (state.materials[m] || 0), 0);
+  tick(effectiveSec);
+  const made = Object.values(state.drinks).reduce((a, b) => a + b, 0) - beerBefore;
+  const gathered = Math.floor(ALL_MATERIALS.reduce((s, m) => s + (state.materials[m] || 0), 0) - matBefore);
+
+  const mins = Math.floor(realSec / 60), effPct = Math.round(efficiency * 100);
+  // 실제로 생산이 인정되는 상한 시간 = 생산 정지 시점(24h)과 하드캡(36h) 중 먼저 걸리는 쪽.
+  // 현재는 BASE(24h)가 항상 먼저라 24h가 표시됨. 연장 시스템으로 BASE가 늘면 자동으로 36h 표기.
+  const prodCapH = Math.min(OFFLINE_BASE_H, OFFLINE_HARDCAP_H);
+  const note = realSec > prodCapH * 3600 ? ` (${prodCapH}시간 이후는 정지)` : "";
+  const brewPart = made > 0 ? ` · 술 ${made}병 양조` : "";
+  const gatherPart = gathered > 0 ? ` · 재료 ${gathered}개 채집` : "";
+  log(`다녀오셨군요! ${mins}분 자리비움 · 효율 ${effPct}% 적용${brewPart}${gatherPart}${note}.`);
+}
+
+
+/* ── ⑥ 화면 그리기 & 조작 ────────────────────────────────────────────────── */
+
+// 용병 <select> 옵션: (비움) + 자유 용병 + 현재 이 칸의 용병.
+// 다른 작업에 배치된 용병은 목록에서 빠짐 → 한 용병이 두 작업에 배치될 수 없다(충돌 방지).
+function charOptions(currentId, kind) {
+  const minLv = kind === "brew" ? FERMENTATION.who_can_brew_min_level : FERMENTATION.who_can_gather_min_level;
+  // 단계별 용병 수(merc_slots)만큼만 영입돼 배치 가능 — 나머지는 단계 상승 시 해금
+  const available = Object.keys(CHARACTERS).slice(0, stageMercSlots(state.tavernStage));
+  let html = `<option value="">(비움)</option>`;
+  for (const id of available) {
+    const c = CHARACTERS[id];
+    if (isInjured(id)) continue;                        // 부상 용병은 배치 불가
+    if ((kind === "brew" ? skillLv(id, "양조") : skillLv(id, "조달")) < minLv) continue;  // 자격 미달
+    const isCurrent = id === currentId;
+    if (!isCurrent && !isCharFree(id)) continue;       // 이미 다른 작업 중이면 숨김
+    const tag = kind === "brew" ? `양조Lv${skillLv(id, "양조")}${c.brewmaster ? "·술도사" : ""}` : `조달Lv${skillLv(id, "조달")}`;
+    html += `<option value="${id}"${isCurrent ? " selected" : ""}>${c.name} (${tag})</option>`;
+  }
+  return html;
+}
+
+function renderMaterials() {
+  document.getElementById("ui-materials").innerHTML =
+    ALL_MATERIALS.map(m => `<div class="cell"><span class="k">${m}</span><span class="v">${Math.floor(state.materials[m] || 0)}</span></div>`).join("");
+}
+
+function renderRoster() {
+  const assigned = assignedCharIds();
+  document.getElementById("ui-roster").innerHTML = Object.keys(CHARACTERS).map(id => {
+    const c = CHARACTERS[id];
+    let job = "대기";
+    state.brewSlots.forEach((s, i) => { if (s.charId === id) job = `발효 ${i + 1}번`; });
+    for (const act in state.gatherAssign) if (state.gatherAssign[act] === id) job = `채집·${act}`;
+    const injured = isInjured(id);
+    if (injured) job = "🤕 부상";
+    const color = injured ? "#d96b6b" : assigned.has(id) ? "#7fb069" : "#80766a";
+    return `<div class="cell${assigned.has(id) ? " busy" : ""}">
+      <span class="k">${c.name}${c.brewmaster ? " ⭐" : ""}</span>
+      <span class="v" style="font-weight:normal;font-size:12px;color:${color}">${job}</span>
+    </div>`;
+  }).join("");
+}
+
+function renderGather() {
+  const box = document.getElementById("ui-gathering");
+  const used = activeGatherCount(), cap = gatherSlotCount(), full = used >= cap;
+  let html = `<div class="row" style="margin:0 0 8px"><span class="label">채집 슬롯</span>
+    <span class="value${full ? " status stop" : ""}">${used} / ${cap}${full ? " (가득)" : ""}</span></div>`;
+  html += Object.keys(GATHERING).map(id => {
+    const a = GATHERING[id], cid = state.gatherAssign[id], c = cid ? CHARACTERS[cid] : null;
+    const lv = cid ? skillLv(cid, "조달") : null;        // 배치 용병 조달 레벨(없으면 null)
+    const yieldsText = Object.entries(a.yields).map(([m, y]) => {
+      const locked = lv !== null && lv < (y.unlock_lv || 1);  // 레벨 부족 → 잠금 표시
+      return locked ? `<span style="color:#80766a">${m} 🔒Lv${y.unlock_lv}</span>` : `${m} ${y.rate_per_h}/h`;
+    }).join(", ");
+    const mult = gatherBuffMultiplier(id);
+    const buffTag = mult > 1 ? ` · <span style="color:#7fb069">버프 ×${mult.toFixed(2)}</span>` : "";
+    return `<div class="gather-row${c ? " active" : ""}">
+      <div class="gather-head">
+        <span class="gather-name">${id}${c ? ` · ${c.name} 채집 중` : ""}</span>
+        <select class="gather-char" data-act="${id}">${charOptions(cid, "gather")}</select>
+      </div>
+      <div class="gather-sub">${yieldsText}${buffTag}</div>
+    </div>`;
+  }).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".gather-char").forEach(s => s.onchange = () => assignGather(s.dataset.act, s.value));
+}
+
+function renderBrewSlots() {
+  document.getElementById("ui-stage").textContent = state.tavernStage;
+  document.getElementById("ui-slotcount").textContent = slotCount();
+  const box = document.getElementById("ui-brew-slots");
+  box.innerHTML = state.brewSlots.map((slot, i) => {
+    const drink = DRINKS[slot.drinkId], char = slot.charId ? CHARACTERS[slot.charId] : null;
+    let status = "빈 슬롯 (용병 미배치)", pct = 0;
+    if (char) {
+      const oneBottleSec = effBrewSeconds(drink, slot.charId) / TIME_SCALE;
+      pct = Math.min(100, (slot.progressSec / oneBottleSec) * 100);
+      const bonus = Math.round(brewSpeedBonus(slot.charId) * 100);
+      if (slot.cooldownSec > 0) status = `💥 폭발 정리 중…`;
+      else if (skillLv(slot.charId, "양조") < (drink.brewReqLv || 1)) status = `양조 Lv${drink.brewReqLv} 필요 — 대기`;
+      else if (!hasMaterials(drink)) status = `재료 부족 — 대기`;
+      else if ((state.drinks[slot.drinkId] || 0) >= STOCK_MAX) status = `창고 가득(99) — 대기`;
+      else status = `${char.name} 양조 중 · 속도 +${bonus}% · ${oneBottleSec.toFixed(1)}초/병`;
+    }
+    const drinkOpts = Object.keys(DRINKS).map(id => `<option value="${id}"${id === slot.drinkId ? " selected" : ""}>${DRINKS[id].name}</option>`).join("");
+    return `<div class="slot-row${char ? " active" : ""}">
+      <div class="slot-head"><span class="slot-name">발효 슬롯 ${i + 1}</span><span class="slot-status">${status}</span></div>
+      <div class="slot-controls">
+        <select class="slot-drink" data-i="${i}">${drinkOpts}</select>
+        <select class="slot-char" data-i="${i}">${charOptions(slot.charId, "brew")}</select>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".slot-drink").forEach(s => s.onchange = () => {
+    const i = +s.dataset.i;
+    if (state.brewSlots[i].drinkId !== s.value) { state.brewSlots[i].drinkId = s.value; state.brewSlots[i].progressSec = 0; }
+    render();
+  });
+  box.querySelectorAll(".slot-char").forEach(s => s.onchange = () => assignBrew(+s.dataset.i, s.value));
+}
+
+function renderDrinkStock() {
+  document.getElementById("ui-drink-list").innerHTML = Object.keys(DRINKS).map(id => {
+    const d = DRINKS[id], stock = state.drinks[id] || 0;
+    return `<div class="drink-row"><span class="drink-name">${d.name}</span><span class="drink-stock">${stock} / ${STOCK_MAX}</span></div>`;
+  }).join("");
+}
+
+// 버프 슬롯: 각 슬롯에 술을 따라(소비) 효과 발동. (비움) 선택 시 내림.
+function renderBuffs() {
+  const box = document.getElementById("ui-buffs");
+  box.innerHTML = state.buffSlots.map((b, i) => {
+    // 옵션: (비움) + 현재 장착 술 + 재고 있는 술
+    let opts = `<option value="">(비움)</option>`;
+    Object.keys(DRINKS).forEach(id => {
+      const stock = state.drinks[id] || 0, isCur = b && b.drinkId === id;
+      if (!isCur && stock < BUFF.consume) return;     // 재고 없으면 숨김(현재 장착건은 표시)
+      opts += `<option value="${id}"${isCur ? " selected" : ""}>${DRINKS[id].name} (재고 ${stock})</option>`;
+    });
+    let status = "비어 있음", pct = 0;
+    if (b && b.raid) status = `${DRINKS[b.drinkId].name} · 습격 대기 (평시 효과 미발동)`;
+    else if (b) {
+      const dur = buffDurationSec(DRINKS[b.drinkId]);
+      pct = Math.max(0, Math.min(100, (b.remainingSec / dur) * 100));
+      status = `${DRINKS[b.drinkId].effect} · ${b.remainingSec.toFixed(1)}초 남음`;
+    }
+    return `<div class="slot-row${b ? " active" : ""}">
+      <div class="slot-head"><span class="slot-name">버프 ${i + 1}</span><span class="slot-status">${status}</span></div>
+      <div class="slot-controls"><select class="buff-drink" data-i="${i}">${opts}</select></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".buff-drink").forEach(s => s.onchange = () => pourDrink(+s.dataset.i, s.value));
+}
+
+// 술 따르기/내리기 (1병 소비 발동 · 중복·동계열 차단 · 슬롯 교체)
+function pourDrink(slotIndex, drinkId) {
+  if (!drinkId) {                                  // (비움) → 내리기
+    if (state.buffSlots[slotIndex]) log(`🍹 ${DRINKS[state.buffSlots[slotIndex].drinkId].name} 버프를 내렸습니다.`);
+    state.buffSlots[slotIndex] = null; render(); return;
+  }
+  const drink = DRINKS[drinkId];
+  if (!drink) { render(); return; }
+  if (BUFF.duplicate_block && state.buffSlots.some((b, i) => i !== slotIndex && b && b.drinkId === drinkId)) {
+    log(`이미 ${drink.name} 버프가 활성입니다 (중복 불가).`); render(); return;
+  }
+  if (BUFF.same_series_block && isSeriesActive(drink.series, slotIndex)) {
+    log(`같은 계열(${drink.series}) 버프가 이미 활성입니다 (계열 중복 불가).`); render(); return;
+  }
+  if ((state.drinks[drinkId] || 0) < BUFF.consume) {
+    log(`${drink.name} 재고가 부족합니다.`); render(); return;
+  }
+  state.drinks[drinkId] -= BUFF.consume;           // 1병 소비 (슬롯에 기존 버프 있으면 즉시 교체)
+  if (drink.buff && drink.buff.kind === "raid") {
+    state.buffSlots[slotIndex] = { drinkId, raid: true };
+    log(`🍹 ${drink.name} 장착 — 습격 시 발동(평시 대기).`);
+  } else {
+    state.buffSlots[slotIndex] = { drinkId, remainingSec: buffDurationSec(drink) };
+    log(`🍹 ${drink.name} 버프 발동! (${drink.effect})`);
+  }
+  render();
+}
+
+// 승급 비용 항목의 현재 보유량 (명성=게이트/비소비, 자금, 그 외=재료)
+function costHave(k) { return k === "명성" ? state.reputation : k === "자금" ? state.funds : (state.materials[k] || 0); }
+// 다음 단계로 승급 가능한가 (명성 게이트 + 비용 전액 보유)
+function canPromote() {
+  if (state.tavernStage >= 6) return false;
+  const next = STAGES[state.tavernStage];                 // 다음 단계
+  if (state.reputation < next.reputation_min) return false;
+  for (const [k, v] of Object.entries(next.build_cost)) if (costHave(k) < v) return false;
+  return true;
+}
+
+function renderProgress() {
+  const st = STAGES[state.tavernStage - 1];
+  const tier = REPUTATION_TIERS.find(t => state.reputation >= t.min && (t.max == null || state.reputation <= t.max)) || REPUTATION_TIERS[0];
+  const next = state.tavernStage < 6 ? STAGES[state.tavernStage] : null;
+  let html = `
+    <div class="row"><span class="label">주점 단계</span><span class="value">${st.stage}단계 · ${st.name} <span style="color:#80766a;font-weight:normal">(World ${st.world})</span></span></div>
+    <div class="row"><span class="label">명성</span><span class="value">${Math.floor(state.reputation)} <span style="color:#c9853d">[${tier.title}]</span></span></div>
+    <div class="row"><span class="label">자금</span><span class="value">${Math.floor(state.funds)}</span></div>
+    <div class="row"><span class="label">용병/슬롯</span><span class="value">용병 ${stageMercSlots(state.tavernStage)}명 · 발효·채집 ${slotCount()}칸</span></div>`;
+  if (next) {
+    const costStr = Object.entries(next.build_cost).map(([k, v]) => {
+      const ok = costHave(k) >= v, gate = k === "명성";
+      return `<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${v}${gate ? "(게이트)" : ""}</span>`;
+    }).join(", ");
+    html += `<div class="gather-sub" style="margin:8px 0 4px">▶ ${next.stage}단계 '${next.name}' 승급 필요: ${costStr}</div>
+      <button id="btn-promote"${canPromote() ? "" : " disabled"}>승급</button>`;
+  } else {
+    html += `<div class="gather-sub" style="margin-top:8px">🏆 최고 단계(왕국의 심장) 달성</div>`;
+  }
+  html += `<button id="btn-serve">접객</button><button id="btn-order">의뢰 완료</button>`;
+  document.getElementById("ui-progress").innerHTML = html;
+  const bp = document.getElementById("btn-promote"); if (bp) bp.onclick = promote;
+  document.getElementById("btn-serve").onclick = doServe;
+  document.getElementById("btn-order").onclick = doOrder;
+}
+
+function renderSkills() {
+  const available = stageMercSlots(state.tavernStage);
+  document.getElementById("ui-skills").innerHTML = Object.keys(CHARACTERS).map((id, idx) => {
+    const c = CHARACTERS[id], locked = idx >= available;
+    const bw = state.skills[id].양조, gd = state.skills[id].조달, ct = state.skills[id].전투;
+    const pct = s => s.lv >= SKILLS.level_max ? 100 : Math.floor((s.xp / SKILLS.xpToNext(s.lv)) * 100);
+    return `<div class="slot-row" style="opacity:${locked ? 0.45 : 1}">
+      <div class="slot-head"><span class="slot-name">${c.name}${c.brewmaster ? " ⭐" : ""}${locked ? " 🔒" : ""}${isInjured(id) ? " 🤕" : ""}</span>
+        <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill})</span></div>
+      <div class="gather-sub">양조 XP ${pct(bw)}% · 조달 XP ${pct(gd)}% · 전투 XP ${pct(ct)}%</div>
+    </div>`;
+  }).join("");
+}
+
+// 행동: 명성/자금 획득 (reputation.gain_actions)
+function doServe() {
+  const a = REP_ACTIONS.serve, rep = a.rep * a.per;
+  state.reputation += rep; state.funds += a.funds;
+  log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${a.funds}.`); render();
+}
+function doOrder() {
+  const a = REP_ACTIONS.order;
+  state.reputation += a.rep; state.funds += a.funds;
+  log(`📜 의뢰 완료 — 명성 +${a.rep}, 자금 +${a.funds}.`); render();
+}
+// 주점 단계 정식 승급 (명성 게이트 + 재료·자금 소비)
+function promote() {
+  if (!canPromote()) { log("승급 조건이 부족합니다."); render(); return; }
+  const next = STAGES[state.tavernStage];
+  for (const [k, v] of Object.entries(next.build_cost)) {
+    if (k === "명성") continue;                            // 게이트(비소비)
+    if (k === "자금") state.funds -= v;
+    else state.materials[k] = (state.materials[k] || 0) - v;
+  }
+  state.tavernStage = next.stage;
+  syncBrewSlots(); reconcileAssignments();
+  log(`🏰 ${next.stage}단계 '${next.name}' 승급! 발효·채집 ${slotCount()}칸 · 용병 ${stageMercSlots(next.stage)}명 · World ${next.world} 해금.`);
+  showSticker("bori");   // 승급 축하 — 보리 "뽀글뽀글!"
+  render();
+}
+
+function renderCombat() {
+  const cb = state.combat;
+  const ally = Math.round(allyPower());
+  const wallPct = Math.round((cb.wall / COMBAT.wall_durability_max) * 100);
+  const injuredList = Object.keys(cb.injured).map(id => CHARACTERS[id].name);
+  const timerTxt = cb.cooldownSec > 0
+    ? `패배 유예 ${cb.cooldownSec.toFixed(0)}초`
+    : `다음 습격까지 ${Math.max(0, cb.raidTimerSec).toFixed(0)}초`;
+  const repairCost = (COMBAT.wall_durability_max - cb.wall) * COMBAT.wall_repair_cost_per_point;
+  let html = `
+    <div class="row"><span class="label">방어 전력</span><span class="value">${ally} <span style="color:#80766a;font-weight:normal">(방어 ${defenderIds().length}명)</span></span></div>
+    <div class="row"><span class="label">방벽 내구도</span><span class="value">${cb.wall} / ${COMBAT.wall_durability_max}</span></div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${wallPct}%;background:#7fb069"></div></div>
+    <div class="row" style="margin-top:6px"><span class="label">대기</span><span class="value status${cb.cooldownSec > 0 ? " stop" : ""}">${timerTxt}</span></div>`;
+  if (injuredList.length) html += `<div class="gather-sub" style="color:#d96b6b">🤕 부상: ${injuredList.join(", ")} (회복 시 자동 복귀)</div>`;
+  if (cb.lastResult) html += `<div class="gather-sub" style="margin-top:4px">최근: ${cb.lastResult}</div>`;
+  html += `<div style="margin-top:8px"><button id="btn-repair"${repairCost > 0 ? "" : " disabled"}>방벽 수리 (자금 ${repairCost})</button></div>`;
+  document.getElementById("ui-combat").innerHTML = html;
+  const br = document.getElementById("btn-repair"); if (br) br.onclick = repairWall;
+}
+
+/* ── 온보딩(첫 진입 튜토리얼) — 오버레이 계층 (게임 로직 비침범) ─────────────
+   대본: t24 §2. 매 렌더마다 state를 폴링해 현재 스텝 게이트 충족 시 자동 진행.
+   캐스트: 할머니·용병·진 (졸업 컷만 보리). 스킬은 자동 적립이라 "올려라" 지시 없음. */
+const OB_STEPS = {
+  1: { modal: true, button: "가게를 맡는다", lines: [
+    ["할머니", "너, 외상 좀 쌓였더라?"],
+    ["용병", "...곧 갚겠습니다."],
+    ["할머니", "됐고. 세계여행 다녀올 동안 가게 좀 봐줘. 외상값 갚을 겸."],
+    ["용병", "저, 칼 쓰는 사람인데요."],
+    ["할머니", "(선글라스 내리며) 술도 칼로 따면 되지. 망하게 하면 외상 두 배다~"],
+    ["", "(할머니, 짐수레로 떠난다)"]
+  ] },
+  2: { target: "card-gather", hint: "⛏️ <b>채집 활동</b>의 '농사' 행 셀렉트에서 용병으로 <b>진</b>을 선택하세요.", lines: [
+    ["", "(진이 카운터에 외상 지고 앉아 있다)"],
+    ["용병", "어이 진. 외상값 3,000골드."],
+    ["진", "...지금은 돈이 없다."],
+    ["용병", "그럼 몸으로 갚아. 밭부터 갈자."],
+    ["진", "무사에게 밭일을…? ...일리 있군."]
+  ], gate: () => state.gatherAssign["농사"] === "진" },
+  3: { target: "card-brew", hint: "🍺 <b>발효 슬롯 1</b>의 술을 <b>농부의 막걸리</b>로 바꾸고, 용병으로 <b>플레이어</b>를 배치하세요.", lines: [
+    ["쪽지", "통에 재료 넣고 기다리면 술 된다. 끝. —할매가"],
+    ["용병", "설명이 이게 다야? (직접 발효 슬롯 앞에 선다)"]
+  ], gate: () => (state.drinks["농부의막걸리"] || 0) >= 1 },
+  4: { target: "card-buff", hint: "🍹 <b>버프 슬롯</b>에 <b>농부의 막걸리</b>를 따르세요. (⛏️ 농사 행에 버프 ×1.15 표시)", lines: [
+    ["용병", "한 병 빠졌네. 마시면… 일이 빨라진다고?"],
+    ["진", "밭일이 수월해졌군. 술기운인가."]
+  ], gate: () => state.buffSlots.some(b => b && !b.raid && b.drinkId === "농부의막걸리") },
+  5: { target: "card-progress", hint: "🏰 성장 카드의 <b>[접객]</b>/<b>[의뢰 완료]</b> 버튼으로 자금 <b>500</b>을 모으세요.", lines: [
+    ["용병", "손님도 받고 의뢰도 처리하면, 주점 이름이 좀 나겠지."],
+    ["진", "외상 안 지는 손님만 오면 좋겠군."]
+  ], gate: () => state.funds >= 500 },
+  6: { target: "card-progress", hint: "🏰 성장 카드의 <b>[승급]</b> 버튼으로 2단계 '동네 명소'로 승급하세요.", lines: [
+    ["용병", "자금 모았다. 가게 좀 키워볼까."]
+  ], gate: () => state.tavernStage >= 2 },
+  7: { modal: true, button: "튜토리얼 완료", lines: [
+    ["", "(2단계 '동네 명소'로 승급! 발효·채집 2칸 + 새 동료가 합류했다.)"],
+    ["보리", "뽀글뽀글!"],
+    ["용병", "…슬라임이 술을 빚는다고?"]
+  ] }
+};
+// 화자 → 초상화 (온보딩 화자 라벨 "용병" = 캐릭터 키 "플레이어"). 쪽지·나레이션은 없음.
+const OB_PORTRAIT = {
+  "할머니": "art/grandma.png",
+  "용병":   "art/player.png",
+  "플레이어": "art/player.png",
+  "진":     "art/jin.png",
+  "보리":   "art/bori.png",
+};
+function obFace(who) {
+  return OB_PORTRAIT[who] ? `<img class="ob-face" src="${OB_PORTRAIT[who]}" alt="${who}">` : "";
+}
+// 이벤트 리액션 스티커 토스트 (art/stickers/<key>.png). 튜토리얼 중엔 억제, 연속 발동 쿨다운.
+let _stickerAt = 0;
+function showSticker(key, hold = 2400) {
+  if (state.onboarding && !state.onboarding.done) return;   // 온보딩 중엔 연출 생략
+  const now = Date.now();
+  if (now - _stickerAt < 3500) return;                      // 연속 습격 등 스팸 방지
+  _stickerAt = now;
+  const el = document.createElement("div");
+  el.className = "sticker-toast";
+  el.style.setProperty("--hold", hold + "ms");
+  el.innerHTML = `<img src="art/stickers/${key}.png" alt="">`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), hold + 700);
+}
+function obHighlight(targetId) {
+  document.querySelectorAll(".ob-highlight").forEach(e => e.classList.remove("ob-highlight"));
+  if (targetId) { const el = document.getElementById(targetId); if (el) el.classList.add("ob-highlight"); }
+}
+function renderOnboarding() {
+  const ob = state.onboarding, host = document.getElementById("ob-overlay");
+  if (!ob || ob.done) { host.innerHTML = ""; obHighlight(null); return; }
+
+  // 게이트 충족 → 다음 스텝 (연쇄 대비 재귀)
+  const cur = OB_STEPS[ob.step];
+  if (cur && cur.gate && cur.gate()) {
+    ob.step++;
+    return renderOnboarding();
+  }
+
+  const def = OB_STEPS[ob.step];
+  if (!def) { host.innerHTML = ""; obHighlight(null); return; }
+  const linesHtml = def.lines.map(([who, txt]) =>
+    who ? `<div class="ob-line">${obFace(who)}<div class="ob-text"><span class="ob-speaker">${who}</span>: ${txt}</div></div>`
+        : `<div class="ob-line ob-narr">${txt}</div>`).join("");
+
+  if (def.modal) {
+    obHighlight(null);
+    const comicHtml = ob.step === 1
+      ? `<img class="ob-comic" src="art/comic_prologue.png" alt="프롤로그 4컷">` : "";
+    host.innerHTML = `<div class="ob-modal-bg"><div class="ob-modal">
+      <div class="ob-step">${ob.step === 1 ? "첫 진입 — 어쩌다 사장" : "졸업 — 첫 승급"}</div>
+      ${comicHtml}${linesHtml}<button id="ob-btn">${def.button}</button></div></div>`;
+    document.getElementById("ob-btn").onclick = () => {
+      if (ob.step === 1) ob.step = 2; else ob.done = true;
+      render();
+    };
+  } else {
+    obHighlight(def.target);
+    host.innerHTML = `<div class="ob-banner">
+      <div class="ob-step">튜토리얼 ${ob.step - 1}/5 · 안내대로 하면 자동으로 넘어갑니다</div>
+      ${linesHtml}<div class="ob-hint">👉 ${def.hint}</div></div>`;
+  }
+}
+
+function render() {
+  renderProgress();
+  renderCombat();
+  renderMaterials();
+  renderRoster();
+  renderGather();
+  renderBrewSlots();
+  renderSkills();
+  renderDrinkStock();
+  renderBuffs();
+  renderOnboarding();   // 오버레이는 항상 마지막 (강조 대상 카드가 먼저 그려진 뒤)
+}
+
+function log(msg) {
+  const el = document.getElementById("ui-log");
+  el.innerHTML = `<div>· ${new Date().toLocaleTimeString()} ${msg}</div>` + el.innerHTML;
+}
+
+// 용병이 이 단계에서 영입(배치 가능)됐는가 — merc_slots 범위 안인지
+function isMercAvailable(charId) {
+  return Object.keys(CHARACTERS).indexOf(charId) < stageMercSlots(state.tavernStage);
+}
+// 배치 조작: 용병을 발효 슬롯에 / 채집 활동에 (공용 풀, 1명=1작업)
+// 방어 가드: UI는 charOptions로 이미 거르지만, 직접 호출 대비 잠금·중복 배치를 함수에서도 재검증.
+function assignBrew(i, charId) {
+  if (charId) {
+    if (!CHARACTERS[charId] || !isMercAvailable(charId)) { log(`아직 영입되지 않은 용병입니다.`); render(); return; }
+    if (isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중이라 배치할 수 없습니다.`); render(); return; }
+    if (assignedCharIds().has(charId) && state.brewSlots[i].charId !== charId) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  }
+  state.brewSlots[i].charId = charId && CHARACTERS[charId] ? charId : null;
+  log(charId ? `${CHARACTERS[charId].name} → 발효 슬롯 ${i + 1} 배치` : `발효 슬롯 ${i + 1} 용병 해제`);
+  render();
+}
+function assignGather(act, charId) {
+  if (charId) {
+    if (!CHARACTERS[charId] || !isMercAvailable(charId)) { log(`아직 영입되지 않은 용병입니다.`); render(); return; }
+    if (isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중이라 배치할 수 없습니다.`); render(); return; }
+    if (assignedCharIds().has(charId) && state.gatherAssign[act] !== charId) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+    // 새 용병을 빈 활동에 넣을 때만 채집 슬롯 상한 검사(교체/해제는 통과)
+    if (!state.gatherAssign[act] && activeGatherCount() >= gatherSlotCount()) {
+      log(`채집 슬롯이 가득 찼습니다 (최대 ${gatherSlotCount()}개). 단계를 올리거나 다른 활동을 비우세요.`);
+      render(); return;
+    }
+  }
+  state.gatherAssign[act] = charId && CHARACTERS[charId] ? charId : null;
+  log(charId ? `${CHARACTERS[charId].name} → 채집 '${act}' 배치` : `채집 '${act}' 용병 해제`);
+  render();
+}
+
+// 개발용: 주점 단계 올리기(슬롯 해금)
+document.getElementById("btn-stage").onclick = () => {
+  if (state.tavernStage >= 6) { log("이미 최대 주점 단계(6)입니다."); return; }
+  state.tavernStage++;
+  syncBrewSlots();
+  log(`[개발] 주점 ${state.tavernStage}단계 → 발효/채집 슬롯 ${slotCount()}칸으로 확장.`);
+  render();
+};
+// 개발용: 승급 재화 지급 (금속·자금은 전투/외상 시스템 미구현이라 소스가 없어 테스트용)
+document.getElementById("btn-grant").onclick = () => {
+  state.reputation += 60000;
+  state.funds += 100000;
+  ["철", "돌", "강철", "마석", "미스릴"].forEach(m => state.materials[m] = (state.materials[m] || 0) + 100);
+  log("[개발] 명성 +60000 · 자금 +100000 · 금속(철·돌·강철·마석·미스릴) +100씩.");
+  render();
+};
+// 개발용: 습격 즉시 발생 (유예 무시하고 1회 판정)
+document.getElementById("btn-raid").onclick = () => {
+  state.combat.cooldownSec = 0;
+  resolveRaid();
+  state.combat.raidTimerSec = peaceIntervalSec();
+  render();
+};
+// 개발용: 온보딩 리셋(재현용)
+document.getElementById("btn-onboard").onclick = () => {
+  state.onboarding = { step: 1, done: false };
+  log("[개발] 온보딩을 리셋했습니다.");
+  render();
+};
+// 개발용: 모든 재료 보충
+document.getElementById("btn-addmat").onclick = () => {
+  ALL_MATERIALS.forEach(m => state.materials[m] = (state.materials[m] || 0) + 30);
+  log("[개발] 모든 재료를 30씩 추가했습니다.");
+  render();
+};
+// 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)
+document.getElementById("btn-reset").onclick = () => {
+  clearInterval(autosaveTimer);
+  window.removeEventListener("beforeunload", save);
+  localStorage.removeItem("lastcall_save");
+  location.reload();
+};
+
+
+/* ── 게임 부팅 ──────────────────────────────────────────────────────────── */
+load();
+render();
+setInterval(() => { tick(1); render(); }, 1000);
+let autosaveTimer = setInterval(save, 5000);
+window.addEventListener("beforeunload", save);
+save();
+</script>
+</body>
+</html>
