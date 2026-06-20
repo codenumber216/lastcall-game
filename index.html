@@ -442,6 +442,7 @@ function injureMerc(id) {
   state.combat.injured[id] = COMBAT.injury_recovery_h * 3600 / TIME_SCALE;
   state.brewSlots.forEach(s => { if (s.charId === id) s.charId = null; });   // 슬롯 자동 정지
   for (const act in state.gatherAssign) if (state.gatherAssign[act] === id) state.gatherAssign[act] = null;
+  needsFullRender = true;           // 가용 용병 변동 → 배치 셀렉트 재구성 필요
 }
 function distributeCombatXp(tier, lost) {
   const pool = defenderIds(); if (!pool.length) return;
@@ -492,7 +493,7 @@ function resolveRaid() {
 function tickCombat(dtSec) {
   for (const id in state.combat.injured) {
     state.combat.injured[id] -= dtSec;
-    if (state.combat.injured[id] <= 0) { delete state.combat.injured[id]; log(`🩹 ${CHARACTERS[id].name} 부상 회복 — 배치 가능.`); }
+    if (state.combat.injured[id] <= 0) { delete state.combat.injured[id]; log(`🩹 ${CHARACTERS[id].name} 부상 회복 — 배치 가능.`); needsFullRender = true; }
   }
   // first_raid_grace: 첫 습격은 2단계 승급 후 — 그 전(1단계)엔 습격 면제(타이머도 정지)
   if (state.tavernStage < COMBAT.first_raid_min_stage) return;
@@ -536,6 +537,7 @@ function tickBuffs(dtSec) {
     if (b.remainingSec <= 0) {
       log(`🍹 ${DRINKS[b.drinkId].name} 버프가 만료되었습니다.`);
       state.buffSlots[i] = null;
+      needsFullRender = true;       // 슬롯 비워짐 → 버프 셀렉트 옵션 재구성 필요
     }
   });
 }
@@ -825,26 +827,15 @@ function renderBrewSlots() {
   document.getElementById("ui-slotcount").textContent = slotCount();
   const box = document.getElementById("ui-brew-slots");
   box.innerHTML = state.brewSlots.map((slot, i) => {
-    const drink = DRINKS[slot.drinkId], char = slot.charId ? CHARACTERS[slot.charId] : null;
-    let status = "빈 슬롯 (용병 미배치)", pct = 0;
-    if (char) {
-      const oneBottleSec = effBrewSeconds(drink, slot.charId) / TIME_SCALE;
-      pct = Math.min(100, (slot.progressSec / oneBottleSec) * 100);
-      const bonus = Math.round(brewSpeedBonus(slot.charId) * 100);
-      if (slot.cooldownSec > 0) status = `💥 폭발 정리 중…`;
-      else if (skillLv(slot.charId, "양조") < (drink.brewReqLv || 1)) status = `양조 Lv${drink.brewReqLv} 필요 — 대기`;
-      else if (!hasMaterials(drink)) status = `재료 부족 — 대기`;
-      else if ((state.drinks[slot.drinkId] || 0) >= STOCK_MAX) status = `창고 가득(99) — 대기`;
-      else status = `${char.name} 양조 중 · 속도 +${bonus}% · ${oneBottleSec.toFixed(1)}초/병`;
-    }
+    const v = brewSlotView(i);
     const drinkOpts = Object.keys(DRINKS).map(id => `<option value="${id}"${id === slot.drinkId ? " selected" : ""}>${DRINKS[id].name}</option>`).join("");
-    return `<div class="slot-row${char ? " active" : ""}">
-      <div class="slot-head"><span class="slot-name">발효 슬롯 ${i + 1}</span><span class="slot-status">${status}</span></div>
+    return `<div class="slot-row${v.active ? " active" : ""}">
+      <div class="slot-head"><span class="slot-name">발효 슬롯 ${i + 1}</span><span class="slot-status">${v.status}</span></div>
       <div class="slot-controls">
         <select class="slot-drink" data-i="${i}">${drinkOpts}</select>
         <select class="slot-char" data-i="${i}">${charOptions(slot.charId, "brew")}</select>
       </div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${v.pct}%"></div></div>
     </div>`;
   }).join("");
   box.querySelectorAll(".slot-drink").forEach(s => s.onchange = () => {
@@ -873,17 +864,11 @@ function renderBuffs() {
       if (!isCur && stock < BUFF.consume) return;     // 재고 없으면 숨김(현재 장착건은 표시)
       opts += `<option value="${id}"${isCur ? " selected" : ""}>${DRINKS[id].name} (재고 ${stock})</option>`;
     });
-    let status = "비어 있음", pct = 0;
-    if (b && b.raid) status = `${DRINKS[b.drinkId].name} · 습격 대기 (평시 효과 미발동)`;
-    else if (b) {
-      const dur = buffDurationSec(DRINKS[b.drinkId]);
-      pct = Math.max(0, Math.min(100, (b.remainingSec / dur) * 100));
-      status = `${DRINKS[b.drinkId].effect} · ${b.remainingSec.toFixed(1)}초 남음`;
-    }
-    return `<div class="slot-row${b ? " active" : ""}">
-      <div class="slot-head"><span class="slot-name">버프 ${i + 1}</span><span class="slot-status">${status}</span></div>
+    const v = buffSlotView(i);
+    return `<div class="slot-row${v.active ? " active" : ""}">
+      <div class="slot-head"><span class="slot-name">버프 ${i + 1}</span><span class="slot-status">${v.status}</span></div>
       <div class="slot-controls"><select class="buff-drink" data-i="${i}">${opts}</select></div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${v.pct}%"></div></div>
     </div>`;
   }).join("");
   box.querySelectorAll(".buff-drink").forEach(s => s.onchange = () => pourDrink(+s.dataset.i, s.value));
@@ -1000,9 +985,11 @@ function renderCombat() {
   const ally = Math.round(allyPower());
   const wallPct = Math.round((cb.wall / COMBAT.wall_durability_max) * 100);
   const injuredList = Object.keys(cb.injured).map(id => CHARACTERS[id].name);
-  const timerTxt = cb.cooldownSec > 0
-    ? `패배 유예 ${cb.cooldownSec.toFixed(0)}초`
-    : `다음 습격까지 ${Math.max(0, cb.raidTimerSec).toFixed(0)}초`;
+  const timerTxt = state.tavernStage < COMBAT.first_raid_min_stage
+    ? `습격 없음 (2단계 승급 후 시작)`
+    : cb.cooldownSec > 0
+      ? `패배 유예 ${fmtDur(cb.cooldownSec)}`
+      : `다음 습격까지 ${fmtDur(cb.raidTimerSec)}`;
   const repairCost = (COMBAT.wall_durability_max - cb.wall) * COMBAT.wall_repair_cost_per_point;
   let html = `
     <div class="row"><span class="label">방어 전력</span><span class="value">${ally} <span style="color:#80766a;font-weight:normal">(방어 ${defenderIds().length}명)</span></span></div>
@@ -1085,11 +1072,12 @@ function obHighlight(targetId) {
   document.querySelectorAll(".ob-highlight").forEach(e => e.classList.remove("ob-highlight"));
   if (targetId) { const el = document.getElementById(targetId); if (el) el.classList.add("ob-highlight"); }
 }
+let obRenderedKey = null;   // 마지막으로 그린 온보딩 상태키 — 같으면 재작성 skip(모달 스크롤 보존)
 function renderOnboarding() {
   const ob = state.onboarding, host = document.getElementById("ob-overlay");
-  if (!ob || ob.done) { host.innerHTML = ""; obHighlight(null); return; }
+  if (!ob || ob.done) { if (obRenderedKey !== "done") { host.innerHTML = ""; obHighlight(null); obRenderedKey = "done"; } return; }
 
-  // 게이트 충족 → 다음 스텝 (연쇄 대비 재귀)
+  // 게이트 충족 → 다음 스텝 (연쇄 대비 재귀) — 매 프레임 평가하되 DOM은 스텝 변화 때만 재작성
   const cur = OB_STEPS[ob.step];
   if (cur && cur.gate && cur.gate()) {
     ob.step++;
@@ -1097,7 +1085,10 @@ function renderOnboarding() {
   }
 
   const def = OB_STEPS[ob.step];
-  if (!def) { host.innerHTML = ""; obHighlight(null); return; }
+  if (!def) { if (obRenderedKey !== "none") { host.innerHTML = ""; obHighlight(null); obRenderedKey = "none"; } return; }
+  const key = "step" + ob.step;
+  if (key === obRenderedKey) return;   // 이미 그려진 스텝 → 재작성 금지(드롭다운/모달 스크롤 유지)
+  obRenderedKey = key;
   const linesHtml = def.lines.map(([who, txt]) =>
     who ? `<div class="ob-line">${obFace(who)}<div class="ob-text"><span class="ob-speaker">${who}</span>: ${txt}</div></div>`
         : `<div class="ob-line ob-narr">${txt}</div>`).join("");
@@ -1110,7 +1101,8 @@ function renderOnboarding() {
       <div class="ob-step">${ob.step === 1 ? "첫 진입 — 어쩌다 사장" : "졸업 — 첫 승급"}</div>
       ${comicHtml}${linesHtml}<button id="ob-btn">${def.button}</button></div></div>`;
     document.getElementById("ob-btn").onclick = () => {
-      if (ob.step === 1) ob.step = 2; else ob.done = true;
+      // 전역 state를 직접 참조(클로저가 옛 state에 묶이는 문제 방지)
+      if (state.onboarding.step === 1) state.onboarding.step = 2; else state.onboarding.done = true;
       render();
     };
   } else {
@@ -1121,7 +1113,77 @@ function renderOnboarding() {
   }
 }
 
+// 구조(슬롯 수·용병 가용·버프 슬롯 점유)가 바뀌어 셀렉트/옵션을 다시 그려야 할 때 true.
+// 실시간 루프(renderLive)는 이 플래그가 설 때만 전체 render()를 한다(드롭다운 안 열린 프레임에).
+let needsFullRender = false;
+// 드롭다운(select)이 열려 활성 상태인가 — 열려 있으면 그 프레임엔 통째 재생성을 피한다.
+function aSelectIsOpen() {
+  const a = document.activeElement;
+  return !!a && a.tagName === "SELECT";
+}
+// 초 → 사람이 읽기 쉬운 시간 (raw 초 표시 방지)
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return sec + "초";
+  if (sec < 3600) { const m = Math.floor(sec / 60), s = sec % 60; return s ? `${m}분 ${s}초` : `${m}분`; }
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return m ? `${h}시간 ${m}분` : `${h}시간`;
+}
+// 발효/버프 슬롯의 표시값(상태·진행%)을 한 곳에서 산출 → 전체렌더와 in-place 갱신이 공유(드리프트 방지)
+function brewSlotView(i) {
+  const slot = state.brewSlots[i];
+  const drink = DRINKS[slot.drinkId], char = slot.charId ? CHARACTERS[slot.charId] : null;
+  let status = "빈 슬롯 (용병 미배치)", pct = 0;
+  if (char) {
+    const oneBottleSec = effBrewSeconds(drink, slot.charId) / TIME_SCALE;
+    pct = Math.min(100, (slot.progressSec / oneBottleSec) * 100);
+    const bonus = Math.round(brewSpeedBonus(slot.charId) * 100);
+    if (slot.cooldownSec > 0) status = `💥 폭발 정리 중…`;
+    else if (skillLv(slot.charId, "양조") < (drink.brewReqLv || 1)) status = `양조 Lv${drink.brewReqLv} 필요 — 대기`;
+    else if (!hasMaterials(drink)) status = `재료 부족 — 대기`;
+    else if ((state.drinks[slot.drinkId] || 0) >= STOCK_MAX) status = `창고 가득(99) — 대기`;
+    else status = `${char.name} 양조 중 · 속도 +${bonus}% · ${oneBottleSec.toFixed(1)}초/병`;
+  }
+  return { status, pct, active: !!char };
+}
+function buffSlotView(i) {
+  const b = state.buffSlots[i];
+  if (b && b.raid) return { status: `${DRINKS[b.drinkId].name} · 습격 대기 (평시 효과 미발동)`, pct: 0, active: true };
+  if (b) { const dur = buffDurationSec(DRINKS[b.drinkId]); return { status: `${DRINKS[b.drinkId].effect} · ${b.remainingSec.toFixed(1)}초 남음`, pct: Math.max(0, Math.min(100, (b.remainingSec / dur) * 100)), active: true }; }
+  return { status: "비어 있음", pct: 0, active: false };
+}
+// 발효/버프 슬롯의 진행바·상태만 in-place 갱신(셀렉트는 건드리지 않음 → 드롭다운 유지, 진행바 부드럽게)
+function updateBrewLive() {
+  document.querySelectorAll("#ui-brew-slots .slot-row").forEach((row, i) => {
+    if (i >= state.brewSlots.length) return;
+    const v = brewSlotView(i);
+    const st = row.querySelector(".slot-status"); if (st && st.textContent !== v.status) st.textContent = v.status;
+    const bar = row.querySelector(".bar-fill"); if (bar) bar.style.width = v.pct + "%";
+    row.classList.toggle("active", v.active);
+  });
+}
+function updateBuffLive() {
+  document.querySelectorAll("#ui-buffs .slot-row").forEach((row, i) => {
+    if (i >= state.buffSlots.length) return;
+    const v = buffSlotView(i);
+    const st = row.querySelector(".slot-status"); if (st && st.textContent !== v.status) st.textContent = v.status;
+    const bar = row.querySelector(".bar-fill"); if (bar) bar.style.width = v.pct + "%";
+    row.classList.toggle("active", v.active);
+  });
+}
+
+// 실시간(1초) 루프용 경량 렌더: 셀렉트/모달/진행바 트랜지션을 보존하며 변하는 값만 갱신.
+function renderLive() {
+  renderOnboarding();                              // 게이트 평가 + 스텝 바뀔 때만 오버레이 재작성
+  if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
+  // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
+  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock();
+  // 발효·채집·버프 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
+  updateBrewLive(); updateBuffLive();
+}
+
 function render() {
+  needsFullRender = false;
   renderProgress();
   renderCombat();
   renderMaterials();
@@ -1218,7 +1280,7 @@ document.getElementById("btn-reset").onclick = () => {
 /* ── 게임 부팅 ──────────────────────────────────────────────────────────── */
 load();
 render();
-setInterval(() => { tick(1); render(); }, 1000);
+setInterval(() => { tick(1); renderLive(); }, 1000);
 let autosaveTimer = setInterval(save, 5000);
 window.addEventListener("beforeunload", save);
 save();
