@@ -28,12 +28,12 @@
   button {
     background: #c9853d; color: #1a1410; border: none; border-radius: 8px;
     padding: 10px 16px; font-size: 15px; font-weight: bold; cursor: pointer;
-    margin: 4px 4px 4px 0;
+    margin: 4px 4px 4px 0; min-height: 44px;
   }
   button:disabled { background: #4a4038; color: #80766a; cursor: not-allowed; }
   select {
     background: #1a1410; color: #f0e6d2; border: 1px solid #5a4632;
-    border-radius: 6px; padding: 6px; font-size: 13px;
+    border-radius: 6px; padding: 6px; font-size: 13px; min-height: 44px;
   }
   .bar-bg { background: #1a1410; border-radius: 6px; height: 14px; overflow: hidden; margin-top: 4px; }
   .bar-fill { background: #c9853d; height: 100%; width: 0%; transition: width 0.2s; }
@@ -923,10 +923,19 @@ function renderProgress() {
     <div class="row"><span class="label">자금</span><span class="value">${Math.floor(state.funds)}</span></div>
     <div class="row"><span class="label">용병/슬롯</span><span class="value">용병 ${stageMercSlots(state.tavernStage)}명 · 발효·채집 ${slotCount()}칸</span></div>`;
   if (next) {
-    const costStr = Object.entries(next.build_cost).map(([k, v]) => {
-      const ok = costHave(k) >= v, gate = k === "명성";
-      return `<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${v}${gate ? "(게이트)" : ""}</span>`;
-    }).join(", ");
+    // 명성 게이트는 reputation_min 기준으로 항상 표시(build_cost에 명성 키가 없어도 — 5단계 숨은 게이트 방지).
+    // build_cost의 '명성' 항목은 이 줄과 중복이라 비용 목록에서 제외.
+    const parts = [];
+    if (next.reputation_min > 0) {
+      const ok = state.reputation >= next.reputation_min;
+      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">명성 ${Math.floor(state.reputation)}/${next.reputation_min}(게이트)</span>`);
+    }
+    Object.entries(next.build_cost).forEach(([k, v]) => {
+      if (k === "명성") return;
+      const ok = costHave(k) >= v;
+      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${v}</span>`);
+    });
+    const costStr = parts.join(", ");
     html += `<div class="gather-sub" style="margin:8px 0 4px">▶ ${next.stage}단계 '${next.name}' 승급 필요: ${costStr}</div>
       <button id="btn-promote"${canPromote() ? "" : " disabled"}>승급</button>`;
   } else {
