@@ -130,6 +130,12 @@
   <div id="ui-progress"></div>
 </div>
 
+<!-- ─────────── 의뢰 게시판 (주간 의뢰) ─────────── -->
+<div class="card" id="card-orders">
+  <div class="label">📜 의뢰 게시판 <span style="font-weight:normal;font-size:12px">(주간 5건 · 조건 충족 시 완료)</span></div>
+  <div id="ui-orders"></div>
+</div>
+
 <!-- ─────────── 습격 방어 (전투) ─────────── -->
 <div class="card" id="card-combat">
   <div class="label">⚔️ 습격 방어 <span style="font-weight:normal;font-size:12px">(영입 용병 전원이 방어 · 전투 버프 반영)</span></div>
@@ -207,6 +213,7 @@
 <script src="progression.js"></script>
 <script src="skills.js"></script>
 <script src="combat.js"></script>
+<script src="orders.js"></script>
 
 <script>
 /* ============================================================================
@@ -263,10 +270,13 @@ function freshState() {
     funds: 0,                 // 자금(승급 비용·소비)
     skills: freshSkills(),    // 용병별 스킬 { charId: { 양조, 조달, 전투 : {lv,xp} } }
     combat: freshCombat(),    // 전투 상태(방벽·습격 타이머·부상 등)
+    orders: { active: [], timerSec: weekSec(), repeatCount: {} },  // 의뢰 게시판(active는 부팅/로드 후 생성)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
 }
+// 주(週) 갱신 주기를 현재 배속 실초로 (168 인게임시간)
+function weekSec() { return ORDERS.refresh_game_hours * 3600 / TIME_SCALE; }
 // 용병별 스킬 초기값: 양조=brewLevel, 조달=gatherLevel, 전투=combatLevel 에서 시작.
 function freshSkills() {
   const s = {};
@@ -527,6 +537,106 @@ function tick(dtSec) {
   tickGathering(dtSec);
   tickBrewSlots(dtSec);
   tickCombat(dtSec);
+  tickOrders(dtSec);
+}
+
+/* ── 의뢰 게시판 엔진 ──────────────────────────────────────────────────────── */
+// 현재 단계 가중치로 티어 추첨(해금된 티어만)
+function pickOrderTier(stage) {
+  const w = ORDERS.tier_weights_by_stage[stage] || {};
+  const entries = Object.entries(w).filter(([t]) => ORDERS.tier_unlock_stage[t] <= stage);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  let r = Math.random() * total;
+  for (const [t, v] of entries) { r -= v; if (r <= 0) return t; }
+  return entries.length ? entries[0][0] : "C";
+}
+// 반복 보상 템플릿 키(type + 대상)
+function orderTplKey(t) {
+  if (t.type === "drink_delivery") return "drink_delivery:" + t.drinkId;
+  if (t.type === "material_delivery") return "material_delivery:" + t.material;
+  if (t.type === "drink_any_delivery") return "drink_any_delivery:" + t.qty;
+  if (t.type === "raid_clears") return "raid_clears:" + t.n;
+  if (t.type === "reputation_reach") return "reputation_reach:" + t.delta;
+  return t.type;
+}
+// 템플릿 → 발급 인스턴스(달성형은 발급 시점 스냅샷 기준 목표 저장)
+function orderInstance(tpl) {
+  const o = { tier: tpl.tier, type: tpl.type, done: false, key: orderTplKey(tpl) };
+  if (tpl.type === "drink_delivery") { o.drinkId = tpl.drinkId; o.qty = tpl.qty; }
+  else if (tpl.type === "material_delivery") { o.material = tpl.material; o.qty = tpl.qty; }
+  else if (tpl.type === "drink_any_delivery") { o.qty = tpl.qty; }
+  else if (tpl.type === "raid_clears") { o.n = tpl.n; o.target = (state.combat.clears || 0) + tpl.n; }
+  else if (tpl.type === "reputation_reach") { o.delta = tpl.delta; o.target = Math.floor(state.reputation) + tpl.delta; }
+  return o;
+}
+// 주간 5건 생성: 단계 가중치로 티어 → 그 티어 템플릿에서 무작위
+function generateOrders() {
+  const stage = state.tavernStage, out = [];
+  for (let i = 0; i < ORDERS.count_per_week; i++) {
+    const tier = pickOrderTier(stage);
+    let pool = ORDERS.templates.filter(t => t.tier === tier);
+    if (!pool.length) pool = ORDERS.templates.filter(t => ORDERS.tier_unlock_stage[t.tier] <= stage);
+    if (!pool.length) continue;
+    out.push(orderInstance(pool[Math.floor(Math.random() * pool.length)]));
+  }
+  return out;
+}
+// 완료 게이트(전부 state 비교)
+function orderGateMet(o) {
+  switch (o.type) {
+    case "drink_delivery": return (state.drinks[o.drinkId] || 0) >= o.qty;
+    case "material_delivery": return (state.materials[o.material] || 0) >= o.qty;
+    case "drink_any_delivery": return Object.values(state.drinks).reduce((a, b) => a + b, 0) >= o.qty;
+    case "raid_clears": return (state.combat.clears || 0) >= o.target;
+    case "reputation_reach": return state.reputation >= o.target;
+  }
+  return false;
+}
+// 반복 완료 횟수 → 보상 배율(구간 최대)
+function repeatMult(count) {
+  for (const b of ORDERS.repeat_bonus) if (count >= b.count) return b.mult;
+  return 1;
+}
+// 표시 텍스트
+function orderText(o) {
+  if (o.type === "drink_delivery") return `${DRINKS[o.drinkId] ? DRINKS[o.drinkId].name : o.drinkId} ${o.qty}병 납품`;
+  if (o.type === "material_delivery") return `${o.material} ${o.qty}개 납품`;
+  if (o.type === "drink_any_delivery") return `아무 술 합계 ${o.qty}병 납품`;
+  if (o.type === "raid_clears") return `습격 ${o.n}회 격퇴 (${Math.min(state.combat.clears || 0, o.target)}/${o.target})`;
+  if (o.type === "reputation_reach") return `명성 ${o.target} 도달`;
+  return o.type;
+}
+// 주간 타이머: 경과 시 5건 전부 폐기 후 새로 생성
+function tickOrders(dtSec) {
+  if (!state.orders) return;
+  state.orders.timerSec -= dtSec;
+  let g = 0;
+  while (state.orders.timerSec <= 0 && g++ < 60) {
+    state.orders.active = generateOrders();
+    state.orders.timerSec += weekSec();
+    needsFullRender = true;
+  }
+}
+// [완료] 수령: 게이트 충족 시 소비(납품형)·보상(반복 배율 적용)
+function completeOrder(i) {
+  const o = state.orders.active[i];
+  if (!o || o.done) return;
+  if (!orderGateMet(o)) { log("의뢰 조건이 아직 충족되지 않았습니다."); render(); return; }
+  if (o.type === "drink_delivery") state.drinks[o.drinkId] -= o.qty;
+  else if (o.type === "material_delivery") state.materials[o.material] -= o.qty;
+  else if (o.type === "drink_any_delivery") {
+    let need = o.qty;
+    for (const id in state.drinks) { if (need <= 0) break; const take = Math.min(need, state.drinks[id]); state.drinks[id] -= take; need -= take; }
+  }
+  const count = state.orders.repeatCount[o.key] = (state.orders.repeatCount[o.key] || 0) + 1;
+  const mult = repeatMult(count), r = ORDERS.reward_by_tier[o.tier];
+  const gf = Math.round(r.funds * mult), gr = Math.round(r.rep * mult);
+  state.funds += gf; state.reputation += gr;
+  let matTxt = "";
+  if (r.material) for (const m in r.material) { const add = Math.floor(r.material[m] * mult); state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + add); matTxt += `·${m} +${add}`; }
+  o.done = true;
+  log(`📜 의뢰 완료 [${o.tier}] ${orderText(o)} — 자금 +${gf}·명성 +${gr}${matTxt}${mult > 1 ? ` (반복 x${mult})` : ""}`);
+  render();
 }
 
 // 버프 만료: 시간형 버프의 남은시간을 dtSec만큼 깎고, 0 이하가 되면 해제. raid형은 카운트다운 없음.
@@ -709,6 +819,16 @@ function load() {
       for (const id in sc.injured) if (CHARACTERS[id] && typeof sc.injured[id] === "number") state.combat.injured[id] = sc.injured[id];
     }
   }
+
+  // 의뢰 복원: 유효 템플릿만(존재하는 술/재료). 없거나 비면 새로 생성.
+  if (saved.orders && Array.isArray(saved.orders.active)) {
+    state.orders.timerSec = typeof saved.orders.timerSec === "number" ? saved.orders.timerSec : weekSec();
+    state.orders.repeatCount = saved.orders.repeatCount && typeof saved.orders.repeatCount === "object" ? saved.orders.repeatCount : {};
+    state.orders.active = saved.orders.active.filter(o => o && o.type &&
+      (o.type !== "drink_delivery" || DRINKS[o.drinkId]) &&
+      (o.type !== "material_delivery" || ALL_MATERIALS.includes(o.material)));
+  }
+  if (!state.orders.active.length) state.orders.active = generateOrders();
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
@@ -941,11 +1061,10 @@ function renderProgress() {
   } else {
     html += `<div class="gather-sub" style="margin-top:8px">🏆 최고 단계(왕국의 심장) 달성</div>`;
   }
-  html += `<button id="btn-serve">접객</button><button id="btn-order">의뢰 완료</button>`;
+  html += `<button id="btn-serve">접객</button>`;
   document.getElementById("ui-progress").innerHTML = html;
   const bp = document.getElementById("btn-promote"); if (bp) bp.onclick = promote;
   document.getElementById("btn-serve").onclick = doServe;
-  document.getElementById("btn-order").onclick = doOrder;
 }
 
 function renderSkills() {
@@ -968,11 +1087,6 @@ function doServe() {
   state.reputation += rep; state.funds += a.funds;
   log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${a.funds}.`); render();
 }
-function doOrder() {
-  const a = REP_ACTIONS.order;
-  state.reputation += a.rep; state.funds += a.funds;
-  log(`📜 의뢰 완료 — 명성 +${a.rep}, 자금 +${a.funds}.`); render();
-}
 // 주점 단계 정식 승급 (명성 게이트 + 재료·자금 소비)
 function promote() {
   if (!canPromote()) { log("승급 조건이 부족합니다."); render(); return; }
@@ -987,6 +1101,27 @@ function promote() {
   log(`🏰 ${next.stage}단계 '${next.name}' 승급! 발효·채집 ${slotCount()}칸 · 용병 ${stageMercSlots(next.stage)}명 · World ${next.world} 해금.`);
   showSticker("bori");   // 승급 축하 — 보리 "뽀글뽀글!"
   render();
+}
+
+function renderOrders() {
+  const box = document.getElementById("ui-orders"); if (!box || !state.orders) return;
+  const o = state.orders;
+  let html = `<div class="row" style="margin:0 0 6px"><span class="label">갱신까지</span><span class="value">${fmtDur(o.timerSec)}</span></div>`;
+  html += o.active.map((ord, i) => {
+    if (ord.done) return `<div class="drink-row" style="opacity:.5"><span class="drink-name">[${ord.tier}] ${orderText(ord)}</span><span class="drink-stock">완료됨</span></div>`;
+    const r = ORDERS.reward_by_tier[ord.tier];
+    const cnt = (o.repeatCount[ord.key] || 0) + 1, mult = repeatMult(cnt);
+    const matTxt = r.material ? " · " + Object.entries(r.material).map(([m, v]) => `${m}×${Math.floor(v * mult)}`).join(", ") : "";
+    const reward = `자금 ${Math.round(r.funds * mult)} · 명성 ${Math.round(r.rep * mult)}${matTxt}${mult > 1 ? ` (반복 x${mult})` : ""}`;
+    const met = orderGateMet(ord);
+    return `<div class="slot-row${met ? " active" : ""}">
+      <div class="slot-head"><span class="slot-name">[${ord.tier}] ${orderText(ord)}</span></div>
+      <div class="gather-sub">보상: ${reward}</div>
+      <button class="order-done" data-i="${i}"${met ? "" : " disabled"}>완료</button>
+    </div>`;
+  }).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".order-done").forEach(b => b.onclick = () => completeOrder(+b.dataset.i));
 }
 
 function renderCombat() {
@@ -1186,7 +1321,7 @@ function renderLive() {
   renderOnboarding();                              // 게이트 평가 + 스텝 바뀔 때만 오버레이 재작성
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
-  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock();
+  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders();
   // 발효·채집·버프 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
   updateBrewLive(); updateBuffLive();
 }
@@ -1194,6 +1329,7 @@ function renderLive() {
 function render() {
   needsFullRender = false;
   renderProgress();
+  renderOrders();
   renderCombat();
   renderMaterials();
   renderRoster();
@@ -1288,6 +1424,7 @@ document.getElementById("btn-reset").onclick = () => {
 
 /* ── 게임 부팅 ──────────────────────────────────────────────────────────── */
 load();
+if (!state.orders.active.length) state.orders.active = generateOrders();   // 새 게임(세이브 없음) 시 첫 의뢰 생성
 render();
 setInterval(() => { tick(1); renderLive(); }, 1000);
 let autosaveTimer = setInterval(save, 5000);
