@@ -33,14 +33,48 @@ const ORDERS = {
     { count: 3,  mult: 1.5 }
   ],
 
-  // 의뢰 템플릿 풀 = SSOT example_orders (확정 값). 티어 추첨 후 그 티어 템플릿에서 무작위.
-  templates: [
-    { tier: "C",  type: "drink_delivery",    drinkId: "보리맥주",     qty: 5 },
-    { tier: "C",  type: "material_delivery", material: "약초",        qty: 20 },
-    { tier: "B",  type: "drink_delivery",    drinkId: "화끈한증류주", qty: 8 },
-    { tier: "A",  type: "drink_delivery",    drinkId: "용기의에일",   qty: 6 },
-    { tier: "A",  type: "raid_clears",       n: 3 },
-    { tier: "S",  type: "drink_delivery",    drinkId: "보리의정수",   qty: 2 },
-    { tier: "SS", type: "drink_delivery",    drinkId: "왕국의축배",   qty: 1 }
-  ]
+  // 생성 공식(SSOT kingdom_systems.orders.generation): 티어→type→대상/수량(범위 균등) 추첨.
+  // 모든 술/재료 키는 코드 식별자와 일치(공백 없음, NFC). example_orders는 샘플이라 출제 소스에서 제외.
+  generation: {
+    by_tier: {
+      C: {
+        types: ["drink_delivery", "material_delivery", "drink_any_delivery"],
+        drink_pool: ["보리맥주", "싸구려와인", "어부의탁배기", "농부의막걸리", "나무꾼의송진주", "광부의철맥주"],
+        drink_qty: { min: 4, max: 8 },
+        material_pool: ["홉", "작물", "약초", "생선", "나무껍질", "광석", "보리", "쌀", "목재"],
+        material_qty: { min: 15, max: 30 },
+        any_qty: { min: 8, max: 14 }
+      },
+      B: {
+        types: ["drink_delivery", "material_delivery", "drink_any_delivery"],
+        drink_pool: ["화끈한증류주", "용기의에일", "수련자의청주", "풍요의탁주", "보리맥주", "싸구려와인"],
+        drink_qty: { min: 6, max: 10 },
+        material_pool: ["홉", "작물", "약초", "생선", "나무껍질", "광석", "보리", "쌀", "꿀", "약수", "몬스터고기"],
+        material_qty: { min: 25, max: 45 },
+        any_qty: { min: 12, max: 20 }
+      },
+      A: {
+        types: ["drink_delivery", "material_delivery", "raid_clears"],
+        drink_pool: ["화끈한증류주", "용기의에일", "함정꾼의독주", "수련자의청주", "도사의곡차", "풍요의탁주"],
+        drink_qty: { min: 5, max: 8 },
+        material_pool: ["꿀", "약수", "몬스터고기", "독버섯", "마석가루", "산삼"],
+        material_qty: { min: 10, max: 20 },
+        raid_n: { min: 2, max: 4 }
+      },
+      S: {
+        types: ["drink_delivery", "raid_clears", "reputation_reach"],
+        drink_pool: ["함정꾼의독주", "도사의곡차", "영웅의폭탄주", "회복의약주", "거인의흑맥주"],
+        drink_qty: { min: 3, max: 6 },
+        raid_n: { min: 4, max: 7 },
+        rep_delta: { min: 1500, max: 3000 }
+      },
+      SS: {
+        types: ["drink_delivery", "raid_clears", "reputation_reach"],
+        drink_pool: ["거인의흑맥주", "보리의정수", "왕국의축배"],
+        drink_qty: { min: 1, max: 3 },
+        raid_n: { min: 8, max: 12 },
+        rep_delta: { min: 4000, max: 8000 }
+      }
+    }
+  }
 };

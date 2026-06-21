@@ -550,34 +550,34 @@ function pickOrderTier(stage) {
   for (const [t, v] of entries) { r -= v; if (r <= 0) return t; }
   return entries.length ? entries[0][0] : "C";
 }
-// 반복 보상 템플릿 키(type + 대상)
-function orderTplKey(t) {
-  if (t.type === "drink_delivery") return "drink_delivery:" + t.drinkId;
-  if (t.type === "material_delivery") return "material_delivery:" + t.material;
-  if (t.type === "drink_any_delivery") return "drink_any_delivery:" + t.qty;
-  if (t.type === "raid_clears") return "raid_clears:" + t.n;
-  if (t.type === "reputation_reach") return "reputation_reach:" + t.delta;
-  return t.type;
+// 정수 균등 추첨 [min, max]
+function randInt(r) { return r.min + Math.floor(Math.random() * (r.max - r.min + 1)); }
+// 반복 보상 템플릿 키(type + 대상). 납품형은 특정 술/재료까지, 그 외는 type 단위.
+function orderTplKey(o) {
+  if (o.type === "drink_delivery") return "drink_delivery:" + o.drinkId;
+  if (o.type === "material_delivery") return "material_delivery:" + o.material;
+  return o.type;  // drink_any_delivery / raid_clears / reputation_reach
 }
-// 템플릿 → 발급 인스턴스(달성형은 발급 시점 스냅샷 기준 목표 저장)
-function orderInstance(tpl) {
-  const o = { tier: tpl.tier, type: tpl.type, done: false, key: orderTplKey(tpl) };
-  if (tpl.type === "drink_delivery") { o.drinkId = tpl.drinkId; o.qty = tpl.qty; }
-  else if (tpl.type === "material_delivery") { o.material = tpl.material; o.qty = tpl.qty; }
-  else if (tpl.type === "drink_any_delivery") { o.qty = tpl.qty; }
-  else if (tpl.type === "raid_clears") { o.n = tpl.n; o.target = (state.combat.clears || 0) + tpl.n; }
-  else if (tpl.type === "reputation_reach") { o.delta = tpl.delta; o.target = Math.floor(state.reputation) + tpl.delta; }
+// 생성 공식으로 의뢰 1건 발급(generation.by_tier). 달성형(raid/rep)은 발급 시점 스냅샷+증분으로 목표 저장.
+function orderInstance(tier) {
+  const g = ORDERS.generation.by_tier[tier];
+  const type = g.types[Math.floor(Math.random() * g.types.length)];
+  const o = { tier, type, done: false };
+  if (type === "drink_delivery") { o.drinkId = g.drink_pool[Math.floor(Math.random() * g.drink_pool.length)]; o.qty = randInt(g.drink_qty); }
+  else if (type === "material_delivery") { o.material = g.material_pool[Math.floor(Math.random() * g.material_pool.length)]; o.qty = randInt(g.material_qty); }
+  else if (type === "drink_any_delivery") { o.qty = randInt(g.any_qty); }
+  else if (type === "raid_clears") { o.n = randInt(g.raid_n); o.target = (state.combat.clears || 0) + o.n; }   // 비소비: 발급시 clears + n
+  else if (type === "reputation_reach") { o.delta = randInt(g.rep_delta); o.target = Math.floor(state.reputation) + o.delta; }  // 비소비: 발급시 rep + delta
+  o.key = orderTplKey(o);
   return o;
 }
-// 주간 5건 생성: 단계 가중치로 티어 → 그 티어 템플릿에서 무작위
+// 주간 5건 생성: 단계 가중치로 티어(해금만) → 그 티어 generation 공식으로 대상·수량 추첨
 function generateOrders() {
   const stage = state.tavernStage, out = [];
   for (let i = 0; i < ORDERS.count_per_week; i++) {
     const tier = pickOrderTier(stage);
-    let pool = ORDERS.templates.filter(t => t.tier === tier);
-    if (!pool.length) pool = ORDERS.templates.filter(t => ORDERS.tier_unlock_stage[t.tier] <= stage);
-    if (!pool.length) continue;
-    out.push(orderInstance(pool[Math.floor(Math.random() * pool.length)]));
+    if (!ORDERS.generation.by_tier[tier]) continue;
+    out.push(orderInstance(tier));
   }
   return out;
 }
