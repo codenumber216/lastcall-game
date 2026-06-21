@@ -130,6 +130,12 @@
   <div id="ui-progress"></div>
 </div>
 
+<!-- ─────────── 왕국 성장 (무용담·술통 기부) ─────────── -->
+<div class="card" id="card-kingdom">
+  <div class="label">🏛️ 왕국 성장 <span style="font-weight:normal;font-size:12px">(자원 기부 → 영구 보너스 · Lv 1~20)</span></div>
+  <div id="ui-kingdom"></div>
+</div>
+
 <!-- ─────────── 의뢰 게시판 (주간 의뢰) ─────────── -->
 <div class="card" id="card-orders">
   <div class="label">📜 의뢰 게시판 <span style="font-weight:normal;font-size:12px">(주간 5건 · 조건 충족 시 완료)</span></div>
@@ -214,6 +220,7 @@
 <script src="skills.js"></script>
 <script src="combat.js"></script>
 <script src="orders.js"></script>
+<script src="kingdom.js"></script>
 
 <script>
 /* ============================================================================
@@ -271,12 +278,89 @@ function freshState() {
     skills: freshSkills(),    // 용병별 스킬 { charId: { 양조, 조달, 전투 : {lv,xp} } }
     combat: freshCombat(),    // 전투 상태(방벽·습격 타이머·부상 등)
     orders: { active: [], timerSec: weekSec(), repeatCount: {} },  // 의뢰 게시판(active는 부팅/로드 후 생성)
+    stamps: {},   // 왕국 무용담 { 무용담id: lv(1~20) }  미기부=없음=Lv0
+    statues: {},  // 왕국 술통   { 술통id: lv(1~20) }
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
 }
 // 주(週) 갱신 주기를 현재 배속 실초로 (168 인게임시간)
 function weekSec() { return ORDERS.refresh_game_hours * 3600 / TIME_SCALE; }
+
+/* ── 왕국 성장(무용담·술통) 헬퍼 ───────────────────────────────────────────
+   효과(Lv) = Lv1 + (max-Lv1)*(Lv-1)/19 (선형보간 D4). 내부 실수 적용, 표시만 floor(D6). */
+function kStampEff(def, lv) {            // 혜택 크기 반환(증가형 +%·감소형 -% 모두 양수, 곱→가산, 분→분)
+  const a = kParse(def.lv1), b = kParse(def.max);
+  const eff = a.v + (b.v - a.v) * (lv - 1) / (KINGDOM.level_max - 1);
+  if (a.kind === "mult") return eff - 1;
+  if (a.kind === "min") return eff;
+  return Math.abs(eff);
+}
+function kSignedPct(def, lv) {           // 표시용 부호 보존 % (floor)
+  const a = kParse(def.lv1), b = kParse(def.max);
+  const eff = a.v + (b.v - a.v) * (lv - 1) / (KINGDOM.level_max - 1);
+  if (a.kind === "mult") return { kind: "mult", v: eff };
+  if (a.kind === "min") return { kind: "min", v: eff };
+  return { kind: "pct", v: eff };
+}
+function kParse(s) {
+  if (s.indexOf("시간") >= 0) return { kind: "min", v: parseFloat(s.replace(/[^0-9.]/g, "")) * 60 * (s.indexOf("-") >= 0 ? -1 : 1) };
+  if (s.indexOf("분") >= 0) return { kind: "min", v: parseFloat(s.replace(/[^0-9.]/g, "")) * (s.indexOf("-") >= 0 ? -1 : 1) };
+  if (s.indexOf("x") >= 0 || s.indexOf("×") >= 0) return { kind: "mult", v: parseFloat(s.replace(/[^0-9.]/g, "")) };
+  const n = parseFloat(s.replace(/[^0-9.]/g, "")); return { kind: "pct", v: (s.indexOf("-") >= 0 ? -n : n) / 100 };
+}
+// 특정 효과 그룹(target)에 합산된 무용담+술통 보너스(혜택 크기 합)
+function kingdomBonus(target) {
+  let sum = 0;
+  for (const id in KINGDOM.stamps) { const lv = state.stamps[id] || 0; if (lv >= 1 && KINGDOM.stamps[id].target === target) sum += kStampEff(KINGDOM.stamps[id], lv); }
+  for (const id in KINGDOM.statues) { const lv = state.statues[id] || 0; if (lv >= 1 && KINGDOM.statues[id].target === target) sum += kStampEff(KINGDOM.statues[id], lv); }
+  return sum;
+}
+// 왕의 술통 해금: 구현된 술통(왕 제외 8종) 전부 Lv.10 — 설계서 wang_statue_unlock_fix
+function isWangStatueUnlocked() {
+  return Object.keys(KINGDOM.statues).every(id => id === "왕의 술통" ? true : (state.statues[id] || 0) >= 10);
+}
+// 기부재 표기명 → 실재 자원 종류
+function kCostResolve(name) {
+  if (name === "술") return { kind: "drinks_any" };
+  if (name === "전설술") return { kind: "drinks_series", series: "전설" };
+  if (name === "유물") return { kind: "none" };
+  const key = KINGDOM.aliases[name] || name;
+  if (key === "자금") return { kind: "funds" };
+  return { kind: "material", key };
+}
+function kCostHave(name) {
+  const c = kCostResolve(name);
+  if (c.kind === "funds") return state.funds;
+  if (c.kind === "material") return state.materials[c.key] || 0;
+  if (c.kind === "drinks_any") return Object.values(state.drinks).reduce((a, b) => a + b, 0);
+  if (c.kind === "drinks_series") return Object.keys(DRINKS).reduce((a, id) => a + (DRINKS[id].series === c.series ? (state.drinks[id] || 0) : 0), 0);
+  return 0;
+}
+function kCanPay(cost) { for (const n in cost) if (kCostHave(n) < cost[n]) return false; return true; }
+function kPay(cost) {
+  for (const n in cost) {
+    const c = kCostResolve(n); let amt = cost[n];
+    if (c.kind === "funds") state.funds -= amt;
+    else if (c.kind === "material") state.materials[c.key] = (state.materials[c.key] || 0) - amt;
+    else if (c.kind === "drinks_any") { for (const id in state.drinks) { if (amt <= 0) break; const t = Math.min(amt, state.drinks[id]); state.drinks[id] -= t; amt -= t; } }
+    else if (c.kind === "drinks_series") { for (const id in DRINKS) { if (amt <= 0) break; if (DRINKS[id].series !== c.series) continue; const t = Math.min(amt, state.drinks[id] || 0); state.drinks[id] -= t; amt -= t; } }
+  }
+}
+// 기부: 1레벨 상승(비용 = 레벨당 고정 mat_per_lv/donate_per_lv)
+function kingdomDonate(kindArr, id) {
+  const def = (kindArr === "stamp" ? KINGDOM.stamps : KINGDOM.statues)[id];
+  const store = (kindArr === "stamp" ? state.stamps : state.statues);
+  const lv = store[id] || 0;
+  if (kindArr === "statue" && id === "왕의 술통" && !isWangStatueUnlocked()) { log("왕의 술통: 다른 술통 8종을 모두 Lv.10으로 올려야 해금됩니다."); render(); return; }
+  if (lv >= KINGDOM.level_max) { log(`${id}: 이미 최대 Lv.20`); return; }
+  if (!def.cost) { log(`${id}: 기부 비용 미정(기획 대기) — 현재 기부 불가`); render(); return; }
+  if (!kCanPay(def.cost)) { log(`${id} 기부 재료가 부족합니다.`); render(); return; }
+  kPay(def.cost);
+  store[id] = lv + 1;
+  log(`🏛️ ${id} Lv.${lv + 1} 달성 (기부).`);
+  render();
+}
 // 용병별 스킬 초기값: 양조=brewLevel, 조달=gatherLevel, 전투=combatLevel 에서 시작.
 function freshSkills() {
   const s = {};
@@ -340,7 +424,8 @@ function addSkillXp(charId, skill, amount) {
 }
 // 조달 스킬 레벨 보너스(가산): (조달Lv-1)×0.5%p, 캡 +120%
 function gatherSkillBonus(charId) {
-  return Math.min(SKILLS.rate_cap, (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level);
+  const b = (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level + kingdomBonus("gather_rate") + kingdomBonus("all_skill");
+  return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
 // 양조 속도 보너스(가산): (양조Lv-1)×0.5%p + 술도사 +50%, 상한 +120%
@@ -349,7 +434,8 @@ function brewSpeedBonus(charId) {
   const c = CHARACTERS[charId];
   let b = (skillLv(charId, "양조") - 1) * FERMENTATION.brew_speed_per_level;
   if (c && c.brewmaster) b += FERMENTATION.brewmaster_passive_speed;
-  return Math.min(FERMENTATION.speed_additive_cap, b);
+  b += kingdomBonus("brew_speed") + kingdomBonus("all_skill");   // 양조 무용담·술통·왕의 술통
+  return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
 function effBrewSeconds(drink, charId) { return drink.brewSeconds / (1 + brewSpeedBonus(charId)); }
@@ -431,8 +517,8 @@ function allyPower() {
   let pBase = 0;
   defenderIds().forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")));
   // 함정(미설치)·망루(미건설)는 0 — 시스템 도입 시 P_base에 가산
-  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk);          // +150% 캡
-  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive); // +100% 캡
+  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill"));  // 무용담·술통·전설 합산, +150% 캡
+  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive + kingdomBonus("combat_survive")); // +100% 캡
   const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
   const mAccount = 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k);
   return pBase * mAtk * mSurvive * mAudience * mAccount;
@@ -484,9 +570,9 @@ function resolveRaid() {
   const enemy = (et.power.min + Math.random() * (et.power.max - et.power.min)) * enemyPowerMult();
   const ratio = enemy > 0 ? ally / enemy : 99;
   if (ratio >= 1.0) {                                                        // 격퇴(승)
-    const funds = Math.round(et.funds.min + Math.random() * (et.funds.max - et.funds.min));
+    const funds = Math.round((et.funds.min + Math.random() * (et.funds.max - et.funds.min)) * fundsGainMult());
     state.funds += funds;
-    state.reputation += COMBAT.rep_by_tier[tier];
+    state.reputation += Math.round(COMBAT.rep_by_tier[tier] * repGainMult());
     distributeCombatXp(tier, false);
     state.combat.consecutiveClears++;
     state.combat.clears++;
@@ -630,7 +716,7 @@ function completeOrder(i) {
   }
   const count = state.orders.repeatCount[o.key] = (state.orders.repeatCount[o.key] || 0) + 1;
   const mult = repeatMult(count), r = ORDERS.reward_by_tier[o.tier];
-  const gf = Math.round(r.funds * mult), gr = Math.round(r.rep * mult);
+  const gf = Math.round(r.funds * mult * fundsGainMult()), gr = Math.round(r.rep * mult * repGainMult());
   state.funds += gf; state.reputation += gr;
   let matTxt = "";
   if (r.material) for (const m in r.material) { const add = Math.floor(r.material[m] * mult); state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + add); matTxt += `·${m} +${add}`; }
@@ -829,6 +915,10 @@ function load() {
       (o.type !== "material_delivery" || ALL_MATERIALS.includes(o.material)));
   }
   if (!state.orders.active.length) state.orders.active = generateOrders();
+
+  // 왕국 성장 복원: 구현된 무용담/술통만, Lv 1~20 클램프
+  if (saved.stamps) for (const id in KINGDOM.stamps) { const v = saved.stamps[id]; if (typeof v === "number") state.stamps[id] = Math.min(KINGDOM.level_max, Math.max(0, Math.floor(v))); }
+  if (saved.statues) for (const id in KINGDOM.statues) { const v = saved.statues[id]; if (typeof v === "number") state.statues[id] = Math.min(KINGDOM.level_max, Math.max(0, Math.floor(v))); }
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
@@ -1082,10 +1172,15 @@ function renderSkills() {
 }
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
+// 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
+function repGainMult() { return 1 + kingdomBonus("rep_gain"); }
+function fundsGainMult() { return 1 + kingdomBonus("funds_gain"); }
 function doServe() {
-  const a = REP_ACTIONS.serve, rep = a.rep * a.per;
-  state.reputation += rep; state.funds += a.funds;
-  log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${a.funds}.`); render();
+  const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction");
+  const rep = Math.round(a.rep * a.per * sat * repGainMult());
+  const funds = Math.round(a.funds * sat * fundsGainMult());
+  state.reputation += rep; state.funds += funds;
+  log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${funds}.`); render();
 }
 // 주점 단계 정식 승급 (명성 게이트 + 재료·자금 소비)
 function promote() {
@@ -1122,6 +1217,40 @@ function renderOrders() {
   }).join("");
   box.innerHTML = html;
   box.querySelectorAll(".order-done").forEach(b => b.onclick = () => completeOrder(+b.dataset.i));
+}
+
+// 효과 표시 문자열(부호 보존, 표시만 floor)
+function kEffText(def, lv) {
+  if (lv < 1) return "—";
+  const e = kSignedPct(def, lv);
+  if (e.kind === "mult") return "x" + (Math.floor(e.v * 100) / 100).toFixed(2);
+  if (e.kind === "min") { const m = Math.floor(Math.abs(e.v)); return (e.v < 0 ? "-" : "+") + (m >= 60 ? Math.floor(m / 60) + "시간" + (m % 60 ? " " + (m % 60) + "분" : "") : m + "분"); }
+  return (e.v < 0 ? "" : "+") + Math.floor(e.v * 100) + "%";   // 유저 유리: 표시 floor(증가형은 보수적)
+}
+function kCostText(cost) { return Object.entries(cost).map(([n, v]) => `${n} ${v}`).join(", "); }
+function renderKingdom() {
+  const box = document.getElementById("ui-kingdom"); if (!box) return;
+  const row = (kindArr, id, def) => {
+    const store = kindArr === "stamp" ? state.stamps : state.statues;
+    const lv = store[id] || 0, maxed = lv >= KINGDOM.level_max;
+    const wangLocked = (kindArr === "statue" && id === "왕의 술통" && !isWangStatueUnlocked());
+    let btn;
+    if (wangLocked) btn = `<button disabled>🔒 술통 8종 Lv.10 필요</button>`;
+    else if (maxed) btn = `<button disabled>Lv.20 최대</button>`;
+    else if (!def.cost) btn = `<button disabled>기부 비용 미정</button>`;
+    else { const can = kCanPay(def.cost); btn = `<button class="k-donate" data-kind="${kindArr}" data-id="${id}"${can ? "" : " disabled"}>기부 (${kCostText(def.cost)})</button>`; }
+    const effNow = kEffText(def, lv), effNext = maxed ? "" : ` → ${kEffText(def, lv + 1)}`;
+    return `<div class="slot-row">
+      <div class="slot-head"><span class="slot-name">${id}</span><span class="slot-status">Lv.${lv}/20 · ${effNow}${effNext}</span></div>
+      ${btn}
+    </div>`;
+  };
+  let html = `<div class="gather-sub" style="margin-bottom:6px">📖 무용담 ${Object.keys(KINGDOM.stamps).length}종</div>`;
+  html += Object.keys(KINGDOM.stamps).map(id => row("stamp", id, KINGDOM.stamps[id])).join("");
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🛢️ 술통 ${Object.keys(KINGDOM.statues).length}종</div>`;
+  html += Object.keys(KINGDOM.statues).map(id => row("statue", id, KINGDOM.statues[id])).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".k-donate").forEach(b => b.onclick = () => kingdomDonate(b.dataset.kind, b.dataset.id));
 }
 
 function renderCombat() {
@@ -1321,7 +1450,7 @@ function renderLive() {
   renderOnboarding();                              // 게이트 평가 + 스텝 바뀔 때만 오버레이 재작성
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
-  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders();
+  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom();
   // 발효·채집·버프 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
   updateBrewLive(); updateBuffLive();
 }
@@ -1330,6 +1459,7 @@ function render() {
   needsFullRender = false;
   renderProgress();
   renderOrders();
+  renderKingdom();
   renderCombat();
   renderMaterials();
   renderRoster();
