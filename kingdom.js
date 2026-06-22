@@ -17,15 +17,15 @@ const KINGDOM = {
     "경영": { lv1: "+5%", max: "+50%", cost: { 자금: 200 }, target: "funds_gain" },
     "홍보": { lv1: "+3%", max: "+30%", cost: { 자금: 150 }, target: "rep_gain" },
     "조달": { lv1: "+3%", max: "+30%", cost: { 약초: 50 }, target: "gather_rate" },
-    "검술": { lv1: "+4%", max: "+35%", cost: null, target: "combat_atk" },
-    "궁술": { lv1: "+4%", max: "+35%", cost: null, target: "combat_atk" },
-    "마법": { lv1: "+5%", max: "+40%", cost: null, target: "combat_atk" },
-    "함정": { lv1: "+5%", max: "+40%", cost: null, target: "combat_atk" },
-    "방어": { lv1: "+3%", max: "+25%", cost: null, target: "combat_survive" },
-    "확장": { lv1: "+5%", max: "+40%", cost: null, target: null },
-    "영업": { lv1: "+30분", max: "+5시간", cost: null, target: "offline" },   // "영업(오프라인)"
-    "왕국": { lv1: "+5%", max: "+40%", cost: null, target: null },
-    "전설": { lv1: "x1.1", max: "x2.0", cost: null, target: "combat_atk" }     // 곱→가산(eff-1), +150% 클립
+    "검술": { lv1: "+4%", max: "+35%", cost: { 광석: 40 },   target: "combat_atk" },
+    "궁술": { lv1: "+4%", max: "+35%", cost: { 나무껍질: 40 }, target: "combat_atk" },
+    "마법": { lv1: "+5%", max: "+40%", cost: { 마석가루: 20 }, target: "combat_atk" },
+    "함정": { lv1: "+5%", max: "+40%", cost: { 독버섯: 20 },  target: "combat_atk" },
+    "방어": { lv1: "+3%", max: "+25%", cost: { 광석: 50 },   target: "combat_survive" },
+    "확장": { lv1: "+5%", max: "+40%", cost: { 목재: 50 },   target: null },
+    "영업": { lv1: "+30분", max: "+5시간", cost: { 자금: 200 }, target: "offline" },   // "영업(오프라인)"
+    "왕국": { lv1: "+5%", max: "+40%", cost: { 자금: 300 },  target: null },
+    "전설": { lv1: "x1.1", max: "x2.0", cost: { 전설홉: 3 },  target: "combat_atk" }     // 곱→가산(eff-1), +150% 클립
   },
 
   // 술통(statues) — deferred(장인·모험·축제) 제외 9종. 전부 donate_per_lv 보유.
@@ -34,7 +34,7 @@ const KINGDOM = {
     "용맹의 술통": { lv1: "+5%", max: "+40%", cost: { 도적금화: 200 }, target: "combat_atk" },
     "환대의 술통": { lv1: "+5%", max: "+50%", cost: { 자금: 300 },    target: "satisfaction" },
     "번영의 술통": { lv1: "+5%", max: "+45%", cost: { 자금: 500 },    target: "funds_gain" },
-    "풍요의 술통": { lv1: "+5%", max: "+40%", cost: { 작물: 300 },    target: null },        // SSOT 효과 대상 미지정
+    "풍요의 술통": { lv1: "+5%", max: "+40%", cost: { 작물: 300 },    target: "gather_rate" }, // 채집 rate(생산 +120% 캡)
     "명성의 술통": { lv1: "+5%", max: "+45%", cost: { 자금: 400 },    target: "rep_gain" },
     "마법의 술통": { lv1: "+5%", max: "+40%", cost: { 마석: 100 },    target: "combat_atk" },
     "수호의 술통": { lv1: "-5%", max: "-40%", cost: { 강철: 300 },    target: "combat_survive" }, // 받는 피해 -X% → 생존
