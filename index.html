@@ -148,6 +148,12 @@
   <div id="ui-combat"></div>
 </div>
 
+<!-- ─────────── 단골 카드 & 펫 도감 ─────────── -->
+<div class="card" id="card-cardspets">
+  <div class="label">📇 단골 & 펫 도감 <span style="font-weight:normal;font-size:12px">(조건 달성·습격 격퇴로 수집 · 보유 보너스 영구 합산)</span></div>
+  <div id="ui-cardspets"></div>
+</div>
+
 <!-- ─────────── 재료 창고 (여러 칸) ─────────── -->
 <div class="card">
   <div class="label">📦 재료 창고</div>
@@ -203,6 +209,7 @@
   <button id="btn-raid">[개발] 습격 발생</button>
   <button id="btn-onboard">[개발] 온보딩 리셋</button>
   <button id="btn-addmat">[개발] 모든 재료 +30</button>
+  <button id="btn-dex">[개발] 도감 테스트 획득</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -221,6 +228,7 @@
 <script src="combat.js"></script>
 <script src="orders.js"></script>
 <script src="kingdom.js"></script>
+<script src="cards_pets.js"></script>
 
 <script>
 /* ============================================================================
@@ -280,6 +288,10 @@ function freshState() {
     orders: { active: [], timerSec: weekSec(), repeatCount: {} },  // 의뢰 게시판(active는 부팅/로드 후 생성)
     stamps: {},   // 왕국 무용담 { 무용담id: lv(1~20) }  미기부=없음=Lv0
     statues: {},  // 왕국 술통   { 술통id: lv(1~20) }
+    cards: {},    // 단골 카드 { 카드id: 보유매수 }  매수≥1=보유, dupes로 등급
+    cardPity: {}, // 적 카드 미획득 누적(피티) { 적카드id: missCount }
+    pets: {},     // 보유 펫 종류 { 펫id: true }  도감 카운트=key 수
+    petEquip: {}, // 용병별 장착 펫 { charId: [펫id...] }  같은 펫=영지 1마리
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -361,6 +373,105 @@ function kingdomDonate(kindArr, id) {
   log(`🏛️ ${id} Lv.${lv + 1} 달성 (기부).`);
   render();
 }
+/* ── 단골 카드 & 펫 도감 헬퍼 (cards_pets.js) ───────────────────────────────
+   효과는 전부 SSOT의 가산 그룹(g/v)에 합산 → kingdomBonus와 같은 전역 캡으로 클리핑.
+   계정(영지) 단위: 카드 보유·세트·펫 도감 / 용병 단위: 펫 장착. */
+const CARD_BY_ID = {}; CARDS.list.forEach(c => CARD_BY_ID[c.id] = c);
+const PET_BY_ID  = {}; PETS.list.forEach(p => PET_BY_ID[p.id] = p);
+const GROUP_LABEL = { gather_rate:"채집", brew_speed:"양조속도", combat_atk:"전투력", combat_survive:"생존", rep_gain:"명성", funds_gain:"자금", satisfaction:"만족", offline:"오프라인", all_skill:"전 스킬", "xp_조달":"조달 XP", "xp_전투":"전투 XP", xp_all:"전 스킬 XP" };
+function groupEffLabel(g, v) { return g ? `${GROUP_LABEL[g] || g} +${Math.round(v * 100)}%` : "도감 전용"; }
+
+function cardOwned(name) { return (state.cards[name] || 0) >= 1; }
+function cardGradeName(copies) { const d = CARDS.grade_dupes; return copies >= d.플래티넘 ? "플래티넘" : copies >= d.골드 ? "골드" : copies >= d.실버 ? "실버" : ""; }
+function petOwnedCount() { return Object.keys(state.pets).filter(n => state.pets[n]).length; }
+function setComplete(set) { return set.cards.every(c => cardOwned(c)); }
+
+// 계정 단위 보너스(보유 카드 + 완성 세트 + 펫 도감 종류수 마일스톤)의 그룹 합
+function cardPetAccountBonus(target) {
+  let s = 0;
+  CARDS.list.forEach(c => { if (c.g === target && cardOwned(c.id)) s += c.v; });
+  CARDS.sets.forEach(set => { if (set.g === target && setComplete(set)) s += set.v; });
+  const cnt = petOwnedCount();
+  PETS.collection.forEach(m => { if (m.g === target && cnt >= m.n) s += m.v; });
+  return s;
+}
+// 용병 단위 장착 펫 보너스
+function equippedPetBonus(charId, target) { let s = 0; (state.petEquip[charId] || []).forEach(n => { const p = PET_BY_ID[n]; if (p && p.g === target) s += p.v; }); return s; }
+function equippedPetBonusAll(target) { let s = 0; for (const id in CHARACTERS) s += equippedPetBonus(id, target); return s; }
+// XP 가속(카드·펫 도감): 스킬별 xp_조달/xp_전투 + 전역 xp_all
+function xpBonus(skill) { let s = cardPetAccountBonus("xp_all"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t); return s; }
+
+// 획득(중복=dupes 누적, 신규만 로그). 세트 신규 완성 시 알림.
+function grantCard(name) {
+  if (!CARD_BY_ID[name]) return false;
+  const had = cardOwned(name);
+  state.cards[name] = (state.cards[name] || 0) + 1;
+  if (!had) {
+    log(`🃏 단골 카드 획득: ${name} — ${CARD_BY_ID[name].effect}`); needsFullRender = true;
+    CARDS.sets.forEach(set => { if (set.cards.includes(name) && setComplete(set)) log(`🎴 세트 완성: ${set.name} (${groupEffLabel(set.g, set.v)})`); });
+  }
+  return !had;
+}
+function grantPet(name) {
+  if (!PET_BY_ID[name] || state.pets[name]) return false;
+  state.pets[name] = true;
+  log(`🐾 펫 획득: ${name} — ${PET_BY_ID[name].effect}`); needsFullRender = true;
+  return true;
+}
+// 게이트 판정 (계정 단위 최댓값/state 임계값)
+function maxSkillLv(skill) { let m = 0; for (const id in CHARACTERS) m = Math.max(m, skillLv(id, skill)); return m; }
+function cardGateMet(g) {
+  if (!g) return false;
+  if (g.type === "satisfaction") return (kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction")) >= g.v; // ※ 만족도 게이지 미구현 → 만족 보너스 합으로 판정(기획 확인 필요)
+  if (g.type === "tavernStage") return state.tavernStage >= g.v;
+  return false; // raidTier는 격퇴 시 처리
+}
+function petGateMet(g) {
+  if (!g) return false;
+  if (g.type === "skill") return maxSkillLv(g.skill) >= g.lv;
+  if (g.type === "clears") return (state.combat.clears || 0) >= g.n;
+  if (g.type === "dual") return maxSkillLv(g.a.skill) >= g.a.lv && maxSkillLv(g.b.skill) >= g.b.lv;
+  return false; // unmapped / raidTier는 자동획득 보류·격퇴 시 처리
+}
+// 조건형(손님 카드·스킬/격퇴/이중 펫) 폴링: tick마다 호출(이미 보유는 무시).
+function checkCardPetUnlocks() {
+  CARDS.list.forEach(c => { if (c.kind === "손님" && !cardOwned(c.id) && cardGateMet(c.gate)) grantCard(c.id); });
+  PETS.list.forEach(p => { if (!state.pets[p.id] && petGateMet(p.gate)) grantPet(p.id); });
+}
+// 습격 격퇴 시: 적 카드(확률·피티) + raidTier 손님카드/펫(보장) 드롭
+function raidCardPetDrops(tier) {
+  CARDS.list.forEach(c => {
+    if (!c.gate || c.gate.type !== "raidTier") return;
+    if (c.gate.base_rate) {                         // 적 카드: 해당 티어에서만 드롭
+      if (tier !== c.gate.tier) return;
+      const owned = cardOwned(c.id);
+      const miss = state.cardPity[c.id] || 0;
+      const rate = owned ? c.gate.base_rate : c.gate.base_rate * Math.min(1 + miss * CARDS.pity.per_miss, CARDS.pity.cap_mult);
+      if (Math.random() < Math.min(1, rate)) { grantCard(c.id); state.cardPity[c.id] = 0; }
+      else if (!owned) state.cardPity[c.id] = miss + 1;
+    } else if (tier >= c.gate.tier && !cardOwned(c.id)) grantCard(c.id);  // 마왕 단골 등: 보장
+  });
+  PETS.list.forEach(p => { if (p.gate && p.gate.type === "raidTier" && tier >= p.gate.tier && !state.pets[p.id]) grantPet(p.id); });
+}
+// 펫 장착(용병 단위). 슬롯 = 기본3 + 주점Lv6(+2), 하드캡6. (도감 50% +1은 전역 도감완성도 미구현 → 미반영)
+function petSlotMax(charId) { return Math.min(PETS.equip_max, PETS.equip_base + (state.tavernStage >= 6 ? 2 : 0)); }
+function petEquippedMerc(name) { for (const id in state.petEquip) if ((state.petEquip[id] || []).includes(name)) return id; return null; }
+function equipPet(charId, name) {
+  if (!state.pets[name]) { log("보유하지 않은 펫입니다."); render(); return; }
+  if (!isRecruited(charId)) { log("아직 영입되지 않은 용병입니다."); render(); return; }
+  const cur = state.petEquip[charId] || (state.petEquip[charId] = []);
+  if (cur.includes(name)) return;
+  const on = petEquippedMerc(name);
+  if (on && on !== charId) { log(`${name}은(는) 이미 ${CHARACTERS[on].name}에게 장착돼 있습니다 (영지 1마리).`); render(); return; }
+  if (cur.length >= petSlotMax(charId)) { log(`${CHARACTERS[charId].name}의 펫 슬롯이 가득 찼습니다 (최대 ${petSlotMax(charId)}).`); render(); return; }
+  cur.push(name);
+  log(`🐾 ${name} → ${CHARACTERS[charId].name} 장착.`); render();
+}
+function unequipPet(charId, name) {
+  const cur = state.petEquip[charId] || []; const i = cur.indexOf(name);
+  if (i >= 0) { cur.splice(i, 1); log(`${name} 장착 해제.`); render(); }
+}
+
 // 용병별 스킬 초기값: 양조=brewLevel, 조달=gatherLevel, 전투=combatLevel 에서 시작.
 function freshSkills() {
   const s = {};
@@ -414,7 +525,7 @@ function skillLv(charId, skill) {
 function addSkillXp(charId, skill, amount) {
   const node = state.skills && state.skills[charId] && state.skills[charId][skill];
   if (!node || amount <= 0) return;
-  node.xp += amount;
+  node.xp += amount * (1 + xpBonus(skill));   // 카드·펫 도감 XP 가속(xp_조달/xp_전투/xp_all)
   while (node.lv < SKILLS.level_max && node.xp >= SKILLS.xpToNext(node.lv)) {
     node.xp -= SKILLS.xpToNext(node.lv);
     node.lv++;
@@ -424,7 +535,10 @@ function addSkillXp(charId, skill, amount) {
 }
 // 조달 스킬 레벨 보너스(가산): (조달Lv-1)×0.5%p, 캡 +120%
 function gatherSkillBonus(charId) {
-  const b = (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level + kingdomBonus("gather_rate") + kingdomBonus("all_skill");
+  const b = (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level
+    + kingdomBonus("gather_rate") + kingdomBonus("all_skill")
+    + cardPetAccountBonus("gather_rate") + cardPetAccountBonus("all_skill")
+    + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill");
   return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
@@ -434,7 +548,9 @@ function brewSpeedBonus(charId) {
   const c = CHARACTERS[charId];
   let b = (skillLv(charId, "양조") - 1) * FERMENTATION.brew_speed_per_level;
   if (c && c.brewmaster) b += FERMENTATION.brewmaster_passive_speed;
-  b += kingdomBonus("brew_speed") + kingdomBonus("all_skill");   // 양조 무용담·술통·왕의 술통
+  b += kingdomBonus("brew_speed") + kingdomBonus("all_skill")    // 양조 무용담·술통·왕의 술통
+    + cardPetAccountBonus("brew_speed") + cardPetAccountBonus("all_skill")
+    + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill");  // 양조 두꺼비 등
   return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
@@ -517,8 +633,11 @@ function allyPower() {
   let pBase = 0;
   defenderIds().forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")));
   // 함정(미설치)·망루(미건설)는 0 — 시스템 도입 시 P_base에 가산
-  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill"));  // 무용담·술통·전설 합산, +150% 캡
-  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive + kingdomBonus("combat_survive")); // +100% 캡
+  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
+    + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
+    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill"));  // 무용담·술통·전설 + 카드/펫, +150% 캡
+  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive + kingdomBonus("combat_survive")
+    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive")); // +100% 캡
   const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
   const mAccount = 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k);
   return pBase * mAtk * mSurvive * mAudience * mAccount;
@@ -576,6 +695,7 @@ function resolveRaid() {
     distributeCombatXp(tier, false);
     state.combat.consecutiveClears++;
     state.combat.clears++;
+    raidCardPetDrops(tier);                  // 적 카드 드롭(피티) + raidTier 손님카드/펫
     state.combat.lastResult = `${tag} ${ratio >= 1.5 ? "완전 격퇴" : "신승"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 자금 +${funds}, 명성 +${COMBAT.rep_by_tier[tier]}`;
     log(`⚔️ ${state.combat.lastResult}`);
     showSticker("jin");                                                      // 격퇴 — 진
@@ -624,6 +744,7 @@ function tick(dtSec) {
   tickBrewSlots(dtSec);
   tickCombat(dtSec);
   tickOrders(dtSec);
+  checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
 }
 
 /* ── 의뢰 게시판 엔진 ──────────────────────────────────────────────────────── */
@@ -920,6 +1041,21 @@ function load() {
   if (saved.stamps) for (const id in KINGDOM.stamps) { const v = saved.stamps[id]; if (typeof v === "number") state.stamps[id] = Math.min(KINGDOM.level_max, Math.max(0, Math.floor(v))); }
   if (saved.statues) for (const id in KINGDOM.statues) { const v = saved.statues[id]; if (typeof v === "number") state.statues[id] = Math.min(KINGDOM.level_max, Math.max(0, Math.floor(v))); }
 
+  // 단골 카드 & 펫 도감 복원 (존재하는 id만, NFC 정규화)
+  if (saved.cards) for (const n in saved.cards) { const k = n.normalize("NFC"); if (CARD_BY_ID[k] && typeof saved.cards[n] === "number") state.cards[k] = Math.max(0, Math.floor(saved.cards[n])); }
+  if (saved.cardPity) for (const n in saved.cardPity) { const k = n.normalize("NFC"); if (CARD_BY_ID[k] && typeof saved.cardPity[n] === "number") state.cardPity[k] = Math.max(0, Math.floor(saved.cardPity[n])); }
+  if (saved.pets) for (const n in saved.pets) { const k = n.normalize("NFC"); if (PET_BY_ID[k] && saved.pets[n]) state.pets[k] = true; }
+  if (saved.petEquip && typeof saved.petEquip === "object") {
+    const seen = new Set();   // 같은 펫=영지 1마리 강제(먼저 나온 용병 우선)
+    for (const id in saved.petEquip) {
+      if (!CHARACTERS[id] || !Array.isArray(saved.petEquip[id])) continue;
+      const arr = saved.petEquip[id].map(n => (n || "").normalize("NFC"))
+        .filter(n => PET_BY_ID[n] && state.pets[n] && !seen.has(n) && seen.add(n))
+        .slice(0, petSlotMax(id));
+      if (arr.length) state.petEquip[id] = arr;
+    }
+  }
+
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
     state.onboarding = { step: saved.onboarding.step || 1, done: !!saved.onboarding.done };
@@ -1173,10 +1309,10 @@ function renderSkills() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return 1 + kingdomBonus("rep_gain"); }
-function fundsGainMult() { return 1 + kingdomBonus("funds_gain"); }
+function repGainMult() { return 1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain"); }
+function fundsGainMult() { return 1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain"); }
 function doServe() {
-  const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction");
+  const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction");
   const rep = Math.round(a.rep * a.per * sat * repGainMult());
   const funds = Math.round(a.funds * sat * fundsGainMult());
   state.reputation += rep; state.funds += funds;
@@ -1251,6 +1387,62 @@ function renderKingdom() {
   html += Object.keys(KINGDOM.statues).map(id => row("statue", id, KINGDOM.statues[id])).join("");
   box.innerHTML = html;
   box.querySelectorAll(".k-donate").forEach(b => b.onclick = () => kingdomDonate(b.dataset.kind, b.dataset.id));
+}
+
+function cardUnlockHint(c) {
+  const g = c.gate;
+  if (g.type === "satisfaction") return `만족 +${Math.round(g.v * 100)}%`;
+  if (g.type === "tavernStage") return `주점 ${g.v}단계`;
+  if (g.type === "raidTier") return `T${g.tier} 격퇴${g.base_rate ? " 드롭" : ""}`;
+  return "조건 미정";
+}
+function petUnlockHint(p) {
+  const g = p.gate;
+  if (g.type === "skill") return `${g.skill} Lv.${g.lv}`;
+  if (g.type === "clears") return `격퇴 ${g.n}회`;
+  if (g.type === "dual") return `${g.a.skill}Lv${g.a.lv}+${g.b.skill}Lv${g.b.lv}`;
+  if (g.type === "raidTier") return `T${g.tier} 격퇴`;
+  return "미구현";
+}
+function renderCardsPets() {
+  const box = document.getElementById("ui-cardspets"); if (!box) return;
+  // ── 단골 카드
+  const ownedCards = CARDS.list.filter(c => cardOwned(c.id)).length;
+  let html = `<div class="gather-sub" style="margin-bottom:6px">🃏 단골 카드 ${ownedCards}/${CARDS.list.length}<span style="color:#80766a"> · 미구현 ${CARDS.deferred.length}</span></div>`;
+  html += `<div class="grid3">` + CARDS.list.map(c => {
+    if (cardOwned(c.id)) { const n = state.cards[c.id], gr = cardGradeName(n);
+      return `<div class="cell"><span class="k">${c.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:#7fb069">${c.effect}${gr ? ` · ${gr}` : ""}${n > 1 ? ` ×${n}` : ""}</span></div>`; }
+    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">${cardUnlockHint(c)}</span></div>`;
+  }).join("") + `</div>`;
+  html += `<div class="grid3" style="margin-top:4px">` + CARDS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">미구현</span></div>`).join("") + `</div>`;
+  // ── 세트 보너스
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🎴 세트 보너스</div>`;
+  html += CARDS.sets.map(set => {
+    const done = setComplete(set), miss = set.cards.filter(c => !cardOwned(c));
+    return `<div class="slot-row${done ? " active" : ""}"><div class="slot-head"><span class="slot-name">${set.name}${done ? " ✅" : ""}</span><span class="slot-status" style="font-size:11px">${groupEffLabel(set.g, set.v)} · ${done ? "발동 중" : `미완성(${miss.join(", ")})`}</span></div></div>`;
+  }).join("");
+  // ── 펫 도감
+  const cnt = petOwnedCount(), next = PETS.collection.find(m => cnt < m.n);
+  const reached = PETS.collection.filter(m => cnt >= m.n && m.g).map(m => `${m.n}종 ${groupEffLabel(m.g, m.v)}`);
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🐾 펫 도감 ${cnt}/${PETS.list.length}${next ? ` · 다음 ${next.n}종 → ${groupEffLabel(next.g, next.v)}` : " · 전종 수집!"}</div>`;
+  if (reached.length) html += `<div class="gather-sub" style="color:#7fb069;margin-bottom:4px">도감 보너스: ${reached.join(", ")}</div>`;
+  html += `<div class="grid3">` + PETS.list.map(p => {
+    if (state.pets[p.id]) return `<div class="cell"><span class="k">${p.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:#7fb069">${p.effect}</span></div>`;
+    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">${petUnlockHint(p)}</span></div>`;
+  }).join("") + `</div>`;
+  html += `<div class="grid3" style="margin-top:4px">` + PETS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">미구현</span></div>`).join("") + `</div>`;
+  // ── 펫 장착 (용병 단위)
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🎒 펫 장착 <span style="color:#80766a">(용병 단위 · 같은 펫은 영지 1마리)</span></div>`;
+  html += Object.keys(CHARACTERS).filter(isRecruited).map(id => {
+    const eq = state.petEquip[id] || [], max = petSlotMax(id);
+    const chips = eq.length ? eq.map(n => `<button class="pet-unequip" data-c="${id}" data-n="${n}" style="font-size:11px;padding:2px 6px">${n} ✕</button>`).join(" ") : `<span style="color:#80766a;font-size:11px">없음</span>`;
+    const avail = Object.keys(state.pets).filter(n => state.pets[n] && !petEquippedMerc(n));
+    const sel = (eq.length < max && avail.length) ? `<select class="pet-equip" data-c="${id}"><option value="">+ 장착</option>${avail.map(n => `<option value="${n}">${n}</option>`).join("")}</select>` : "";
+    return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name}</span><span class="slot-status" style="font-size:11px">${eq.length}/${max}</span></div><div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${chips} ${sel}</div></div>`;
+  }).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".pet-equip").forEach(s => s.onchange = () => { if (s.value) equipPet(s.dataset.c, s.value); });
+  box.querySelectorAll(".pet-unequip").forEach(b => b.onclick = () => unequipPet(b.dataset.c, b.dataset.n));
 }
 
 function renderCombat() {
@@ -1461,6 +1653,7 @@ function render() {
   renderOrders();
   renderKingdom();
   renderCombat();
+  renderCardsPets();
   renderMaterials();
   renderRoster();
   renderGather();
@@ -1541,6 +1734,13 @@ document.getElementById("btn-onboard").onclick = () => {
 document.getElementById("btn-addmat").onclick = () => {
   ALL_MATERIALS.forEach(m => state.materials[m] = (state.materials[m] || 0) + 30);
   log("[개발] 모든 재료를 30씩 추가했습니다.");
+  render();
+};
+// 개발용: 도감 구현분 전체 획득 (단골 카드 10 + 펫 15)
+document.getElementById("btn-dex").onclick = () => {
+  CARDS.list.forEach(c => grantCard(c.id));
+  PETS.list.forEach(p => grantPet(p.id));
+  log("[개발] 단골 카드·펫 도감(구현분) 전체 획득.");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)
