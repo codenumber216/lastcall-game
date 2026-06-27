@@ -67,21 +67,23 @@ const PETS = {
   deferred: ["제작 드래곤", "요리 너구리", "접객 고양이", "경영 부엉이", "홍보 앵무", "원정 군마", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
 };
 
-/* ── 도감 완성도 마일스톤 (SSOT completion_log.milestone_rewards) ────────────
-   basis = 게임 내 실재 도감(단골 15 + 펫 25 = 40 슬롯)의 보유 비율.
-   deferred(카드5·펫10)는 보유 불가라 현재 최대 도달 = 25/40 = 62.5% → 75%+ 마일스톤은
-   보류 콘텐츠 구현 시 자연 해금(가짜 달성 없음).
-   ※ completion_log는 본래 전 콘텐츠(술·안주·장비·던전·망토·거품·무용담·술통·용병·업적)
-     완성도를 상정함. 미구현 카테고리는 도입 시 basis_total에 합류 예정 — 현재 basis는
-     '실재 도감(카드+펫)'으로 한정(기획 확인 필요 항목). 값/효과는 전부 SSOT. */
+/* ── 도감 완성도 마일스톤 (SSOT completion_log.completion_basis / milestone_rule) ──
+   B 확정(2026-06-27): 분모 = '현재 획득 가능' 종 수(deferred 제외) = 단골 10 + 펫 15 = 25.
+   완성도% = 보유 종 수 ÷ 획득가능 종 수 × 100 (항목 1개=1 균등). 보유 판정: 카드 grade≥일반·펫 owned.
+   보류 콘텐츠 해제 시 그 항목이 obtainable로 전환되며 분모·분자에 자동 합류(basis_total 재계산).
+   마일스톤 보상은 도달 시 영구(%가 나중에 내려가도 회수 안 함) → state.domeMaxPct로 추적.
+   - xp_all: 전 스킬 XP 보너스(비스택, 최고 도달 1구간만)
+   - pet_slot: 펫 슬롯 +1(영구) / rep_mult: 명성 획득 ×배수(영구, 곱)
+   - getter_mult: '전 획득량(자금·명성·재료·XP 획득)' ×배수 — power 캡(전투+150%/생산+120%)과 별개(곱)
+   - title: 코스메틱(게임 수치 영향 0). 값/효과는 전부 SSOT. */
 const COMPLETION = {
-  basis_total: CARDS.list.length + CARDS.deferred.length + PETS.list.length + PETS.deferred.length, // 15+25=40
-  pet_slot_at: 0.50,    // slot_sources: "도감 50% → 펫 슬롯 +1" (= 50% 마일스톤의 펫 슬롯 +1과 동일 1칸)
+  basis_total: CARDS.list.length + PETS.list.length, // 획득 가능분만: 10+15=25 (deferred 제외)
+  pet_slot_at: 0.50,
   milestones: [
-    { p: 0.25, label: "전 스킬 XP +2%",            xp_all: 0.02 },
-    { p: 0.50, label: "전 스킬 XP +5% · 펫 슬롯 +1", xp_all: 0.05, pet_slot: 1 },
-    { p: 0.75, label: "전 스킬 XP +10% · 명성 x1.5", xp_all: 0.10, rep_mult: 1.5 },
-    { p: 0.90, label: "전 보너스 +15%",            all_bonus: 0.15 },  // 도달 불가(현재)·'전 보너스' 정의 모호 → 미연결, 기획 확인
-    { p: 1.00, label: "최종 칭호 + 전용 엔딩",       title: true }        // 코스메틱
+    { p: 0.25, label: "전 스킬 XP +2%",                  xp_all: 0.02 },
+    { p: 0.50, label: "전 스킬 XP +5% · 펫 슬롯 +1",       xp_all: 0.05, pet_slot: 1 },
+    { p: 0.75, label: "전 스킬 XP +10% · 명성 x1.5",       xp_all: 0.10, rep_mult: 1.5 },
+    { p: 0.90, label: "전 스킬 XP +15% · 전 획득 x1.15",   xp_all: 0.15, getter_mult: 1.15 },
+    { p: 1.00, label: "최종 칭호 + 전용 엔딩 (코스메틱)",   title: true }
   ]
 };
