@@ -148,6 +148,12 @@
   <div id="ui-combat"></div>
 </div>
 
+<!-- ─────────── 던전 원정 ─────────── -->
+<div class="card" id="card-dungeon">
+  <div class="label">🗝️ 던전 원정 <span style="font-weight:normal;font-size:12px">(파티 파견 · 층 격파 → 자금·재료·카드 · 열쇠 소모)</span></div>
+  <div id="ui-dungeon"></div>
+</div>
+
 <!-- ─────────── 단골 카드 & 펫 도감 ─────────── -->
 <div class="card" id="card-cardspets">
   <div class="label">📇 단골 & 펫 도감 <span style="font-weight:normal;font-size:12px">(조건 달성·습격 격퇴로 수집 · 보유 보너스 영구 합산)</span></div>
@@ -210,6 +216,7 @@
   <button id="btn-onboard">[개발] 온보딩 리셋</button>
   <button id="btn-addmat">[개발] 모든 재료 +30</button>
   <button id="btn-dex">[개발] 도감 테스트 획득</button>
+  <button id="btn-dgkey">[개발] 던전 열쇠+마왕격퇴</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -229,6 +236,7 @@
 <script src="orders.js"></script>
 <script src="kingdom.js"></script>
 <script src="cards_pets.js"></script>
+<script src="dungeon.js"></script>
 
 <script>
 /* ============================================================================
@@ -293,6 +301,7 @@ function freshState() {
     pets: {},     // 보유 펫 종류 { 펫id: true }  도감 카운트=key 수
     petEquip: {}, // 용병별 장착 펫 { charId: [펫id...] }  같은 펫=영지 1마리
     domeMaxPct: 0, // 도감 완성도 최고 도달치(0~1) — 마일스톤 보상 영구 유지용
+    dungeon: freshDungeon(),  // 던전 원정(키·파티·누적 클리어·진행 중 런)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -508,7 +517,18 @@ function freshCombat() {
     consecutiveClears: 0,              // 연속 격퇴(적 전력 가감)
     clears: 0,                         // 누적 격퇴 횟수
     injured: {},                       // { charId: 회복까지 실초 }
+    maxTierCleared: 0,                 // 격퇴한 최고 적 티어(던전 마왕성 심층 해금 판정용)
     lastResult: ""                     // 최근 전투 결과(표시용)
+  };
+}
+// 던전 원정 초기 상태
+function freshDungeon() {
+  return {
+    keys: DUNGEON.key.max_hold,                              // 시작 시 가득
+    keyTimerSec: DUNGEON.key.recharge_interval_h * 3600 / TIME_SCALE,  // 다음 키 충전까지(현재 배속 실초)
+    clears: {},                                             // { 던전명: 누적 클리어 수 }
+    party: [],                                              // 편성된 용병 id (≤3)
+    run: null                                               // 진행 중 원정 { dungeon, totalSec, remainingSec } | null
   };
 }
 // 평화 구간(6~12게임시간)을 현재 배속 실초로
@@ -525,6 +545,7 @@ function assignedCharIds() {
   const set = new Set();
   state.brewSlots.forEach(s => { if (s.charId) set.add(s.charId); });
   for (const act in state.gatherAssign) if (state.gatherAssign[act]) set.add(state.gatherAssign[act]);
+  if (state.dungeon && state.dungeon.run) state.dungeon.party.forEach(id => set.add(id));  // 원정 중 파티 점유
   return set;
 }
 function isCharFree(id) { return !assignedCharIds().has(id); }
@@ -632,8 +653,11 @@ function explosionChance(char) {
 /* ── 전투(습격 방어) 엔진 ────────────────────────────────────────────────── */
 function isInjured(id) { return !!(state.combat.injured && state.combat.injured[id]); }
 function isRecruited(id) { return Object.keys(CHARACTERS).indexOf(id) < stageMercSlots(state.tavernStage); }
-// 방어 참여 용병 = 영입됨 + 비부상 (모두가 주점을 지킨다)
-function defenderIds() { return Object.keys(CHARACTERS).filter(id => isRecruited(id) && !isInjured(id)); }
+// 방어 참여 용병 = 영입됨 + 비부상 (모두가 주점을 지킨다). 원정 파견 중인 용병은 방어에서 빠짐.
+function defenderIds() {
+  const away = (state.dungeon && state.dungeon.run) ? new Set(state.dungeon.party) : null;
+  return Object.keys(CHARACTERS).filter(id => isRecruited(id) && !isInjured(id) && !(away && away.has(id)));
+}
 
 // 활성 버프의 전투 기여 합산 (시간형 + raid형 모두 습격 시 발동)
 function combatBuffTotals() {
@@ -645,20 +669,24 @@ function combatBuffTotals() {
   }
   return { atk, survive, trap };
 }
+// 전투 배율 (습격·던전 공유). M_atk(+150% 캡)·M_survive(+100% 캡)·M_account(명성).
+function combatAtkMult() {
+  return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
+    + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
+    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill"));
+}
+function combatSurviveMult() {
+  return 1 + Math.min(COMBAT.m_survive_cap, combatBuffTotals().survive + kingdomBonus("combat_survive")
+    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive"));
+}
+function combatAccountMult() { return 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k); }
 // 아군 방어 전력 = P_base × M_atk × M_survive × M_audience × M_account (resolution 공식)
 function allyPower() {
-  const bt = combatBuffTotals();
   let pBase = 0;
   defenderIds().forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")));
   // 함정(미설치)·망루(미건설)는 0 — 시스템 도입 시 P_base에 가산
-  const mAtk = 1 + Math.min(COMBAT.m_atk_cap, bt.atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
-    + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
-    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill"));  // 무용담·술통·전설 + 카드/펫, +150% 캡
-  const mSurvive = 1 + Math.min(COMBAT.m_survive_cap, bt.survive + kingdomBonus("combat_survive")
-    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive")); // +100% 캡
   const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
-  const mAccount = 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k);
-  return pBase * mAtk * mSurvive * mAudience * mAccount;
+  return pBase * combatAtkMult() * combatSurviveMult() * mAudience * combatAccountMult();
 }
 // 적 전력 배율 (raid_modifiers): 명성 1000당 +5% + 2연속격퇴 시 +15%
 function enemyPowerMult() {
@@ -713,6 +741,7 @@ function resolveRaid() {
     distributeCombatXp(tier, false);
     state.combat.consecutiveClears++;
     state.combat.clears++;
+    state.combat.maxTierCleared = Math.max(state.combat.maxTierCleared || 0, tier);  // 던전 해금 판정용
     raidCardPetDrops(tier);                  // 적 카드 드롭(피티) + raidTier 손님카드/펫
     state.combat.lastResult = `${tag} ${ratio >= 1.5 ? "완전 격퇴" : "신승"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 자금 +${funds}, 명성 +${COMBAT.rep_by_tier[tier]}`;
     log(`⚔️ ${state.combat.lastResult}`);
@@ -754,6 +783,125 @@ function repairWall() {
 }
 
 
+/* ── 던전 원정 엔진 (raid_combat 재활용 · 층 단판 전력 비교) ──────────────────── */
+const DUNGEON_BY_NAME = {}; DUNGEON.list.forEach(d => DUNGEON_BY_NAME[d.name] = d);
+function dungeonKeyCost(d) { return DUNGEON.cost_by_grade[d.grade] || 1; }
+function dungeonUnlocked(d) { return d.unlock === "raid_tier6" ? (state.combat.maxTierCleared || 0) >= 6 : true; }
+function dungeonRunActive() { return !!(state.dungeon.run); }
+// 파티 방어전력 = 파견 용병 combat_contribution 합 × M_atk × M_survive × M_account (손님 응원 없음)
+function partyPower(party) {
+  const ids = party || state.dungeon.party;
+  let pBase = 0;
+  ids.forEach(id => { if (CHARACTERS[id]) pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")); });
+  return pBase * combatAtkMult() * combatSurviveMult() * combatAccountMult();
+}
+// 층 적 전력: rec_power×(0.4+0.6×floor/floors), 보스층(마지막)=rec_power×1.1
+function floorEnemyPower(d, floor) {
+  if (floor >= d.floors) return d.rec_power * DUNGEON.combat.boss_enemy_mult;
+  return d.rec_power * (DUNGEON.combat.floor_enemy_base + DUNGEON.combat.floor_enemy_slope * floor / d.floors);
+}
+// 던전별 누적 클리어 보상 배수(10회 +10%). 구간 최대.
+function clearCountRewardMult(name) {
+  const c = state.dungeon.clears[name] || 0;
+  for (const b of DUNGEON.clear_count_bonus) if (b.reward_mult && c >= b.count) return b.reward_mult;
+  return 1;
+}
+// 키 충전: 8게임시간마다 +1(cap). 오프라인 큰 dt도 while로 일괄 가산.
+function tickDungeonKeys(dtSec) {
+  const dg = state.dungeon, interval = DUNGEON.key.recharge_interval_h * 3600 / TIME_SCALE;
+  if (dg.keys >= DUNGEON.key.cap) { dg.keyTimerSec = interval; return; }   // 가득이면 타이머 리셋 유지
+  dg.keyTimerSec -= dtSec;
+  let guard = 0;
+  while (dg.keyTimerSec <= 0 && dg.keys < DUNGEON.key.cap && guard++ < 1000) {
+    dg.keys += DUNGEON.key.amount;
+    dg.keyTimerSec += interval;
+    needsFullRender = true;
+  }
+  if (dg.keys >= DUNGEON.key.cap) dg.keyTimerSec = interval;
+}
+// 원정 진행: run 타이머 소진 시 정산. 오프라인 큰 dt도 1회 정산 후 종료(파티 복귀).
+function tickDungeon(dtSec) {
+  tickDungeonKeys(dtSec);
+  const run = state.dungeon.run;
+  if (!run) return;
+  run.remainingSec -= dtSec;
+  if (run.remainingSec <= 0) resolveDungeonRun();
+}
+function dungeonGradePool(d) { return DUNGEON.rewards.material_pool_by_grade[d.grade] || []; }
+function giveDungeonMaterials(d, amount, typeCount) {
+  const pool = dungeonGradePool(d); if (!pool.length) return "";
+  const n = Math.min(typeCount, pool.length);
+  const picks = [];
+  const bag = pool.slice();
+  for (let i = 0; i < n; i++) picks.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);
+  // amount를 종류 수로 분배(나머지는 앞쪽에)
+  let out = "";
+  picks.forEach((m, i) => {
+    const give = Math.floor(amount / n) + (i < amount % n ? 1 : 0);
+    if (give <= 0) return;
+    state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + give);
+    out += `·${m} +${give}`;
+  });
+  return out;
+}
+// 원정 입장: 키 소모 + 런 시작(파티는 run 동안 점유). 게이트는 호출 전 검증.
+function enterDungeon(name) {
+  const d = DUNGEON_BY_NAME[name]; if (!d) return;
+  if (dungeonRunActive()) { log("이미 원정이 진행 중입니다."); render(); return; }
+  if (!dungeonUnlocked(d)) { log(`${name}: 마왕(티어6) 격퇴 후 해금됩니다.`); render(); return; }
+  const party = state.dungeon.party.filter(id => CHARACTERS[id] && isRecruited(id) && !isInjured(id));
+  if (!party.length) { log("파티에 용병을 1명 이상 편성하세요."); render(); return; }
+  if (partyPower(party) < d.rec_power) { log(`${name}: 파티 전투력 부족 (${Math.round(partyPower(party))}/${d.rec_power}).`); render(); return; }
+  const cost = dungeonKeyCost(d);
+  if (state.dungeon.keys < cost) { log(`${name}: 열쇠 부족 (${state.dungeon.keys}/${cost} 필요).`); render(); return; }
+  state.dungeon.keys -= cost;
+  // 파견 용병은 기존 배치(채집·양조)에서 해제 — 1명=1작업
+  party.forEach(id => {
+    state.brewSlots.forEach(s => { if (s.charId === id) s.charId = null; });
+    for (const act in state.gatherAssign) if (state.gatherAssign[act] === id) state.gatherAssign[act] = null;
+  });
+  state.dungeon.party = party;
+  const totalSec = DUNGEON.run_base_h * 3600 / TIME_SCALE;
+  state.dungeon.run = { dungeon: name, totalSec, remainingSec: totalSec };
+  log(`🗝️ ${name} 원정 시작 (열쇠 -${cost}, 파티 ${party.map(id => CHARACTERS[id].name).join("·")}).`);
+  needsFullRender = true; render();
+}
+// 원정 정산: 파티 전력으로 층 순차 판정 → 도달 층까지 보상, 보스 클리어 시 메인 보상+카드.
+function resolveDungeonRun() {
+  const run = state.dungeon.run; if (!run) return;
+  const d = DUNGEON_BY_NAME[run.dungeon];
+  const power = partyPower();
+  let reached = 0, bossCleared = false;
+  for (let f = 1; f <= d.floors; f++) {
+    if (power >= floorEnemyPower(d, f)) { reached = f; if (f === d.floors) bossCleared = true; } else break;
+  }
+  const rm = clearCountRewardMult(d.name);
+  let funds = 0, matTxt = "";
+  const normalFloors = Math.min(reached, d.floors - 1);   // 보스층 전까지가 일반 층
+  for (let f = 1; f <= normalFloors; f++) {
+    funds += Math.round(d.rec_power * DUNGEON.rewards.floor.funds_mult / d.floors * rm);
+    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.floor.material * rm), DUNGEON.rewards.floor.material_types);
+  }
+  let cardTxt = "";
+  if (bossCleared) {
+    funds += Math.round(d.rec_power * DUNGEON.rewards.boss.funds_mult * rm);
+    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.boss.material * rm), DUNGEON.rewards.boss.material_types);
+    state.dungeon.clears[d.name] = (state.dungeon.clears[d.name] || 0) + 1;
+    const cardName = DUNGEON.rewards.boss.card;
+    if (!cardOwned(cardName)) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 획득!`; }   // 첫 클리어 보장
+    else if (Math.random() < DUNGEON.rewards.boss.repeat_rate) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 중복`; }
+  }
+  state.funds += funds;
+  state.dungeon.run = null;   // 파티 복귀
+  const result = bossCleared
+    ? `🏆 ${d.name} 보스 '${d.boss}' 격파! (${d.floors}층 클리어) — 자금 +${funds}${matTxt}${cardTxt}`
+    : `🚪 ${d.name} ${reached}/${d.floors}층 도달 후 후퇴 — 자금 +${funds}${matTxt}`;
+  state.dungeon.lastResult = result;
+  log(result);
+  needsFullRender = true;
+}
+
+
 /* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
    버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
 function tick(dtSec) {
@@ -762,6 +910,7 @@ function tick(dtSec) {
   tickBrewSlots(dtSec);
   tickCombat(dtSec);
   tickOrders(dtSec);
+  tickDungeon(dtSec);      // 던전 키 충전 + 진행 중 원정 정산
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
 }
 
@@ -1040,6 +1189,7 @@ function load() {
     if (typeof sc.cooldownSec === "number") state.combat.cooldownSec = sc.cooldownSec;
     if (typeof sc.consecutiveClears === "number") state.combat.consecutiveClears = sc.consecutiveClears;
     if (typeof sc.clears === "number") state.combat.clears = sc.clears;
+    if (typeof sc.maxTierCleared === "number") state.combat.maxTierCleared = Math.min(6, Math.max(0, Math.floor(sc.maxTierCleared)));
     if (typeof sc.lastResult === "string") state.combat.lastResult = sc.lastResult;
     if (sc.injured && typeof sc.injured === "object") {
       for (const id in sc.injured) if (CHARACTERS[id] && typeof sc.injured[id] === "number") state.combat.injured[id] = sc.injured[id];
@@ -1076,6 +1226,20 @@ function load() {
   }
   if (typeof saved.domeMaxPct === "number") state.domeMaxPct = Math.min(1, Math.max(0, saved.domeMaxPct));   // 완성도 최고 도달치(마일스톤 영구)
   updateDomeMax();   // 현재 보유로 재조정(세이브에 없던 구형 호환 포함)
+
+  // 던전 원정 복원 (구형 세이브엔 없으므로 freshDungeon 기본값 유지)
+  if (saved.dungeon && typeof saved.dungeon === "object") {
+    const sd = saved.dungeon;
+    if (typeof sd.keys === "number") state.dungeon.keys = Math.min(DUNGEON.key.cap, Math.max(0, Math.floor(sd.keys)));
+    if (typeof sd.keyTimerSec === "number") state.dungeon.keyTimerSec = Math.max(0, sd.keyTimerSec);
+    if (sd.clears && typeof sd.clears === "object") for (const n in sd.clears) { if (DUNGEON_BY_NAME[n] && typeof sd.clears[n] === "number") state.dungeon.clears[n] = Math.max(0, Math.floor(sd.clears[n])); }
+    if (Array.isArray(sd.party)) state.dungeon.party = sd.party.filter(id => CHARACTERS[id]).slice(0, DUNGEON.party_max);
+    if (sd.run && DUNGEON_BY_NAME[sd.run.dungeon] && typeof sd.run.remainingSec === "number") {
+      const total = DUNGEON.run_base_h * 3600 / TIME_SCALE;
+      state.dungeon.run = { dungeon: sd.run.dungeon, totalSec: sd.run.totalSec || total, remainingSec: Math.max(0, sd.run.remainingSec) };
+    }
+    if (typeof sd.lastResult === "string") state.dungeon.lastResult = sd.lastResult;
+  }
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
@@ -1474,6 +1638,78 @@ function renderCardsPets() {
   box.querySelectorAll(".pet-unequip").forEach(b => b.onclick = () => unequipPet(b.dataset.c, b.dataset.n));
 }
 
+// 던전 파티 슬롯 셀렉트 옵션(영입·비부상·미배치 용병 / 현재 슬롯값 유지)
+function dungeonPartyOptions(slotIndex) {
+  const cur = state.dungeon.party[slotIndex] || "";
+  const inPartyElse = new Set(state.dungeon.party.filter((id, i) => i !== slotIndex));
+  let html = `<option value="">(비움)</option>`;
+  Object.keys(CHARACTERS).forEach(id => {
+    if (!isRecruited(id) || isInjured(id) || inPartyElse.has(id)) return;
+    if (id !== cur && !isCharFree(id)) return;   // 다른 작업 중이면 숨김(현재 슬롯값은 유지)
+    html += `<option value="${id}"${id === cur ? " selected" : ""}>${CHARACTERS[id].name} (전투Lv${skillLv(id, "전투")}·${CHARACTERS[id].combatSkill})</option>`;
+  });
+  return html;
+}
+function setDungeonPartySlot(i, charId) {
+  if (dungeonRunActive()) { log("원정 중에는 파티를 변경할 수 없습니다."); render(); return; }
+  const party = state.dungeon.party.slice();
+  const existing = party[i];
+  if (charId) {
+    if (party.includes(charId)) { render(); return; }
+    if (!isCharFree(charId)) { log(`${CHARACTERS[charId].name}은(는) 다른 작업 중입니다.`); render(); return; }
+    if (existing) party[i] = charId;
+    else if (party.length < DUNGEON.party_max) party.push(charId);
+    else { log(`파티는 최대 ${DUNGEON.party_max}명입니다.`); render(); return; }
+  } else if (existing != null) party.splice(i, 1);
+  state.dungeon.party = party.filter((id, idx, arr) => id && CHARACTERS[id] && arr.indexOf(id) === idx).slice(0, DUNGEON.party_max);
+  render();
+}
+function renderDungeon() {
+  const box = document.getElementById("ui-dungeon"); if (!box) return;
+  const dg = state.dungeon, run = dg.run, cap = DUNGEON.key.cap;
+  let html = `<div class="row" style="margin:0 0 4px"><span class="label">열쇠</span><span class="value">${"🗝️".repeat(dg.keys)}${"·".repeat(Math.max(0, cap - dg.keys))} ${dg.keys}/${cap}</span></div>`;
+  html += `<div class="gather-sub dg-keytimer">${dg.keys >= cap ? "열쇠 가득" : "다음 충전까지 " + fmtDur(dg.keyTimerSec)}</div>`;
+  if (run) {
+    const pct = Math.max(0, Math.min(100, (1 - run.remainingSec / run.totalSec) * 100));
+    html += `<div class="slot-row active" style="margin-top:8px"><div class="slot-head"><span class="slot-name">⚔️ ${run.dungeon} 원정 중</span><span class="slot-status dg-runstatus">${fmtDur(run.remainingSec)} 남음</span></div>
+      <div class="bar-bg"><div class="bar-fill dg-runbar" style="width:${pct}%;background:#c07a4a"></div></div>
+      <div class="gather-sub">파티: ${dg.party.map(id => CHARACTERS[id].name).join("·")}</div></div>`;
+  }
+  const ppow = Math.round(partyPower(dg.party));
+  html += `<div class="gather-sub" style="margin:10px 0 4px">🛡️ 파티 편성 (최대 ${DUNGEON.party_max}) · 전투력 <b>${ppow}</b></div>`;
+  let sel = "";
+  for (let i = 0; i < DUNGEON.party_max; i++) sel += `<select class="dg-party" data-i="${i}"${run ? " disabled" : ""}>${dungeonPartyOptions(i)}</select> `;
+  html += `<div style="display:flex;gap:6px;flex-wrap:wrap">${sel}</div>`;
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🏰 던전</div>`;
+  html += DUNGEON.list.map(d => {
+    const clears = dg.clears[d.name] || 0, cost = dungeonKeyCost(d), unlocked = dungeonUnlocked(d);
+    let btn;
+    if (!unlocked) btn = `<button disabled>🔒 마왕 격퇴 후</button>`;
+    else if (run) btn = `<button disabled>원정 중</button>`;
+    else if (!dg.party.length) btn = `<button disabled>파티 편성 필요</button>`;
+    else if (ppow < d.rec_power) btn = `<button disabled>🔒 전투력 ${ppow}/${d.rec_power}</button>`;
+    else if (dg.keys < cost) btn = `<button disabled>열쇠 ${dg.keys}/${cost}</button>`;
+    else btn = `<button class="dg-enter" data-name="${d.name}">입장 (열쇠 ${cost})</button>`;
+    return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${d.name} <span style="color:#80766a;font-weight:normal;font-size:11px">${d.floors}층·${d.grade}·${d.boss}</span></span>
+      <span class="slot-status" style="font-size:11px">추천 ${d.rec_power} · 클리어 ${clears}회${clears >= 10 ? " (+10%)" : ""}</span></div>${btn}</div>`;
+  }).join("");
+  if (dg.lastResult) html += `<div class="gather-sub" style="margin-top:6px">최근: ${dg.lastResult}</div>`;
+  box.innerHTML = html;
+  box.querySelectorAll(".dg-party").forEach(s => s.onchange = () => setDungeonPartySlot(+s.dataset.i, s.value));
+  box.querySelectorAll(".dg-enter").forEach(b => b.onclick = () => enterDungeon(b.dataset.name));
+}
+// 라이브(1초): 셀렉트 보존 위해 통째 재생성 없이 타이머·진행바만 in-place
+function updateDungeonLive() {
+  const box = document.getElementById("ui-dungeon"); if (!box) return;
+  const dg = state.dungeon;
+  const kt = box.querySelector(".dg-keytimer");
+  if (kt) kt.textContent = dg.keys >= DUNGEON.key.cap ? "열쇠 가득" : "다음 충전까지 " + fmtDur(dg.keyTimerSec);
+  if (dg.run) {
+    const bar = box.querySelector(".dg-runbar"); if (bar) bar.style.width = Math.max(0, Math.min(100, (1 - dg.run.remainingSec / dg.run.totalSec) * 100)) + "%";
+    const st = box.querySelector(".dg-runstatus"); if (st) st.textContent = fmtDur(dg.run.remainingSec) + " 남음";
+  }
+}
+
 function renderCombat() {
   const cb = state.combat;
   const ally = Math.round(allyPower());
@@ -1672,8 +1908,8 @@ function renderLive() {
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom();
-  // 발효·채집·버프 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
-  updateBrewLive(); updateBuffLive();
+  // 발효·채집·버프·던전 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
+  updateBrewLive(); updateBuffLive(); updateDungeonLive();
 }
 
 function render() {
@@ -1682,6 +1918,7 @@ function render() {
   renderOrders();
   renderKingdom();
   renderCombat();
+  renderDungeon();
   renderCardsPets();
   renderMaterials();
   renderRoster();
@@ -1770,6 +2007,13 @@ document.getElementById("btn-dex").onclick = () => {
   CARDS.list.forEach(c => grantCard(c.id));
   PETS.list.forEach(p => grantPet(p.id));
   log("[개발] 단골 카드·펫 도감(구현분) 전체 획득.");
+  render();
+};
+// 개발용: 던전 열쇠 가득 + 마왕(티어6) 격퇴 처리(마왕성 심층 해금 테스트)
+document.getElementById("btn-dgkey").onclick = () => {
+  state.dungeon.keys = DUNGEON.key.cap;
+  state.combat.maxTierCleared = 6;
+  log("[개발] 던전 열쇠 가득 + 마왕 격퇴 처리(마왕성 심층 해금).");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)

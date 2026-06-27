@@ -15,6 +15,7 @@ const CARDS = {
     // 손님 단골(구현 3)
     { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction", v: 0.20 } }, // B확정: 영구 만족 보너스 합(접객 무용담+환대 술통) ≥ +20%, 일시 버프 제외
     { id: "귀족 단골", kind: "손님", effect: "고급 의뢰 +1",  g: null, v: 0, gate: { type: "tavernStage", v: 5 } },
+    { id: "모험가 단골", kind: "손님", effect: "원정 발견 +5%", g: null, v: 0, gate: { type: "dungeon_boss" } }, // 던전 보스 클리어로 획득(폴링 대상 아님)
     { id: "마왕 단골", kind: "손님", effect: "전 매출 +5%",   g: "funds_gain", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     // 적 카드(구현 7) — raid 티어 격퇴 시 base_rate(피티) 드롭
     { id: "좀도둑 카드",   kind: "적", effect: "함정 피해 +3%",  g: null, v: 0,    gate: { type: "raidTier", tier: 1, base_rate: 0.25 } },
@@ -33,8 +34,8 @@ const CARDS = {
     { name: "영웅의 증명", cards: ["용병깡패 카드", "자칭영주 카드", "마왕군 카드", "모험가 단골"], g: null, v: 0 },
     { name: "왕국의 위엄", cards: ["마왕 단골", "마왕군 카드", "귀족 단골", "음유시인 단골"], g: "xp_all", v: 0.05 }
   ],
-  // deferred 카드(획득 불가, 도감 슬롯 유지) — 개수 15 맞춤
-  deferred: ["용병 단골", "상인 단골", "마법사 단골", "음유시인 단골", "모험가 단골"]
+  // deferred 카드(획득 불가, 도감 슬롯 유지) — 개수 15 맞춤. 모험가 단골은 던전 구현으로 해제
+  deferred: ["용병 단골", "상인 단골", "마법사 단골", "음유시인 단골"]
 };
 
 const PETS = {
