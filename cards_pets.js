@@ -13,7 +13,7 @@ const CARDS = {
   pity: { per_miss: 0.1, cap_mult: 5.0 },           // core_formulas.pity_rare_drop
   list: [
     // 손님 단골(구현 3)
-    { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction", v: 0.75 } },
+    { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction", v: 0.20 } }, // B확정: 영구 만족 보너스 합(접객 무용담+환대 술통) ≥ +20%, 일시 버프 제외
     { id: "귀족 단골", kind: "손님", effect: "고급 의뢰 +1",  g: null, v: 0, gate: { type: "tavernStage", v: 5 } },
     { id: "마왕 단골", kind: "손님", effect: "전 매출 +5%",   g: "funds_gain", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     // 적 카드(구현 7) — raid 티어 격퇴 시 base_rate(피티) 드롭

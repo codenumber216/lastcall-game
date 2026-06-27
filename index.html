@@ -422,7 +422,8 @@ function grantPet(name) {
 function maxSkillLv(skill) { let m = 0; for (const id in CHARACTERS) m = Math.max(m, skillLv(id, skill)); return m; }
 function cardGateMet(g) {
   if (!g) return false;
-  if (g.type === "satisfaction") return (kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction")) >= g.v; // ※ 만족도 게이지 미구현 → 만족 보너스 합으로 판정(기획 확인 필요)
+  if (g.type === "satisfaction") return (kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction")) >= g.v; // B확정(2026-06-23): 영구 만족 보너스 합(접객 무용담+환대 술통)으로 판정. 일시 술버프 미포함 → 게이트 깜빡임 방지
+
   if (g.type === "tavernStage") return state.tavernStage >= g.v;
   return false; // raidTier는 격퇴 시 처리
 }
