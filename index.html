@@ -398,8 +398,14 @@ function cardPetAccountBonus(target) {
 // 용병 단위 장착 펫 보너스
 function equippedPetBonus(charId, target) { let s = 0; (state.petEquip[charId] || []).forEach(n => { const p = PET_BY_ID[n]; if (p && p.g === target) s += p.v; }); return s; }
 function equippedPetBonusAll(target) { let s = 0; for (const id in CHARACTERS) s += equippedPetBonus(id, target); return s; }
-// XP 가속(카드·펫 도감): 스킬별 xp_조달/xp_전투 + 전역 xp_all
-function xpBonus(skill) { let s = cardPetAccountBonus("xp_all"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t); return s; }
+// XP 가속(카드·펫 도감 + 완성도 마일스톤): 스킬별 xp_조달/xp_전투 + 전역 xp_all
+function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll(); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t); return s; }
+
+// 도감 완성도(SSOT completion_log): 실재 도감(카드+펫) 보유/총 슬롯. 마일스톤 보너스 산출.
+function domeOwnedCount() { return CARDS.list.filter(c => cardOwned(c.id)).length + petOwnedCount(); }
+function domeCompletion() { return domeOwnedCount() / COMPLETION.basis_total; }
+function milestoneXpAll() { let m = 0; const p = domeCompletion(); COMPLETION.milestones.forEach(s => { if (s.xp_all && p >= s.p) m = Math.max(m, s.xp_all); }); return m; }   // 전 스킬 XP — 최고 도달 구간 적용
+function milestoneRepMult() { let r = 1; const p = domeCompletion(); COMPLETION.milestones.forEach(s => { if (s.rep_mult && p >= s.p) r = Math.max(r, s.rep_mult); }); return r; }    // 명성 x1.5(75%)
 
 // 획득(중복=dupes 누적, 신규만 로그). 세트 신규 완성 시 알림.
 function grantCard(name) {
@@ -454,8 +460,11 @@ function raidCardPetDrops(tier) {
   });
   PETS.list.forEach(p => { if (p.gate && p.gate.type === "raidTier" && tier >= p.gate.tier && !state.pets[p.id]) grantPet(p.id); });
 }
-// 펫 장착(용병 단위). 슬롯 = 기본3 + 주점Lv6(+2), 하드캡6. (도감 50% +1은 전역 도감완성도 미구현 → 미반영)
-function petSlotMax(charId) { return Math.min(PETS.equip_max, PETS.equip_base + (state.tavernStage >= 6 ? 2 : 0)); }
+// 펫 장착(용병 단위). 슬롯 = 기본3 + 주점Lv6(+2) + 도감50%(+1), 하드캡6.
+function petSlotMax(charId) {
+  const domeBonus = domeCompletion() >= COMPLETION.pet_slot_at ? 1 : 0;
+  return Math.min(PETS.equip_max, PETS.equip_base + (state.tavernStage >= 6 ? 2 : 0) + domeBonus);
+}
 function petEquippedMerc(name) { for (const id in state.petEquip) if ((state.petEquip[id] || []).includes(name)) return id; return null; }
 function equipPet(charId, name) {
   if (!state.pets[name]) { log("보유하지 않은 펫입니다."); render(); return; }
@@ -1310,7 +1319,7 @@ function renderSkills() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return 1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain"); }
+function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain")) * milestoneRepMult(); }   // 완성도 75% → 명성 x1.5
 function fundsGainMult() { return 1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain"); }
 function doServe() {
   const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction");
@@ -1407,9 +1416,16 @@ function petUnlockHint(p) {
 }
 function renderCardsPets() {
   const box = document.getElementById("ui-cardspets"); if (!box) return;
+  // ── 도감 완성도 + 마일스톤
+  const pct = domeCompletion(), pctTxt = Math.floor(pct * 100);
+  const nextMile = COMPLETION.milestones.find(s => pct < s.p);
+  const reachedMile = COMPLETION.milestones.filter(s => pct >= s.p);
+  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📖 도감 완성도</span><span class="value">${pctTxt}% <span style="color:#80766a;font-weight:normal">(${domeOwnedCount()}/${COMPLETION.basis_total})</span></span></div>`;
+  html += `<div class="bar-bg"><div class="bar-fill" style="width:${pctTxt}%;background:#c9a86a"></div></div>`;
+  html += `<div class="gather-sub" style="margin:4px 0 10px">${reachedMile.length ? `달성: ${reachedMile.map(s => s.label).join(" · ")}` : "마일스톤 미달성"}${nextMile ? ` <span style="color:#80766a">→ 다음 ${Math.round(nextMile.p * 100)}%: ${nextMile.label}</span>` : ""}</div>`;
   // ── 단골 카드
   const ownedCards = CARDS.list.filter(c => cardOwned(c.id)).length;
-  let html = `<div class="gather-sub" style="margin-bottom:6px">🃏 단골 카드 ${ownedCards}/${CARDS.list.length}<span style="color:#80766a"> · 미구현 ${CARDS.deferred.length}</span></div>`;
+  html += `<div class="gather-sub" style="margin-bottom:6px">🃏 단골 카드 ${ownedCards}/${CARDS.list.length}<span style="color:#80766a"> · 미구현 ${CARDS.deferred.length}</span></div>`;
   html += `<div class="grid3">` + CARDS.list.map(c => {
     if (cardOwned(c.id)) { const n = state.cards[c.id], gr = cardGradeName(n);
       return `<div class="cell"><span class="k">${c.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:#7fb069">${c.effect}${gr ? ` · ${gr}` : ""}${n > 1 ? ` ×${n}` : ""}</span></div>`; }
