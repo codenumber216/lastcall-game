@@ -154,6 +154,12 @@
   <div id="ui-dungeon"></div>
 </div>
 
+<!-- ─────────── 장비 (무기·방어구·세트) ─────────── -->
+<div class="card" id="card-equipment">
+  <div class="label">⚔️ 장비 <span style="font-weight:normal;font-size:12px">(던전 드롭 · 용병당 무기·갑옷·투구·장신구 4슬롯 · 세트 2/4피스)</span></div>
+  <div id="ui-equipment"></div>
+</div>
+
 <!-- ─────────── 단골 카드 & 펫 도감 ─────────── -->
 <div class="card" id="card-cardspets">
   <div class="label">📇 단골 & 펫 도감 <span style="font-weight:normal;font-size:12px">(조건 달성·습격 격퇴로 수집 · 보유 보너스 영구 합산)</span></div>
@@ -217,6 +223,7 @@
   <button id="btn-addmat">[개발] 모든 재료 +30</button>
   <button id="btn-dex">[개발] 도감 테스트 획득</button>
   <button id="btn-dgkey">[개발] 던전 열쇠+마왕격퇴</button>
+  <button id="btn-eqsample">[개발] 장비 샘플 지급</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -237,6 +244,7 @@
 <script src="kingdom.js"></script>
 <script src="cards_pets.js"></script>
 <script src="dungeon.js"></script>
+<script src="equipment.js"></script>
 
 <script>
 /* ============================================================================
@@ -302,6 +310,7 @@ function freshState() {
     petEquip: {}, // 용병별 장착 펫 { charId: [펫id...] }  같은 펫=영지 1마리
     domeMaxPct: 0, // 도감 완성도 최고 도달치(0~1) — 마일스톤 보상 영구 유지용
     dungeon: freshDungeon(),  // 던전 원정(키·파티·누적 클리어·진행 중 런)
+    equipment: freshEquipment(),  // 장비(보유 도감 + 용병별 4슬롯 장착)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -521,6 +530,8 @@ function freshCombat() {
     lastResult: ""                     // 최근 전투 결과(표시용)
   };
 }
+// 장비 초기 상태: owned{장비id:보유수}, equipped{용병id:{무기,갑옷,투구,장신구}}
+function freshEquipment() { return { owned: {}, equipped: {} }; }
 // 던전 원정 초기 상태
 function freshDungeon() {
   return {
@@ -577,7 +588,8 @@ function gatherSkillBonus(charId) {
   const b = (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level
     + kingdomBonus("gather_rate") + kingdomBonus("all_skill")
     + cardPetAccountBonus("gather_rate") + cardPetAccountBonus("all_skill")
-    + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill");
+    + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill")
+    + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill");   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
   return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
@@ -589,7 +601,8 @@ function brewSpeedBonus(charId) {
   if (c && c.brewmaster) b += FERMENTATION.brewmaster_passive_speed;
   b += kingdomBonus("brew_speed") + kingdomBonus("all_skill")    // 양조 무용담·술통·왕의 술통
     + cardPetAccountBonus("brew_speed") + cardPetAccountBonus("all_skill")
-    + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill");  // 양조 두꺼비 등
+    + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill")  // 양조 두꺼비 등
+    + mercSetBonus(charId, "all_skill");   // 장비 세트(마왕성 전 스킬)
   return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
@@ -670,23 +683,29 @@ function combatBuffTotals() {
   return { atk, survive, trap };
 }
 // 전투 배율 (습격·던전 공유). M_atk(+150% 캡)·M_survive(+100% 캡)·M_account(명성).
-function combatAtkMult() {
+// ids = 전투 참가 용병(장비 장신구·세트 전투효과는 참가자 단위로 합산 → 그 용병만).
+function combatAtkMult(ids) {
+  ids = ids || [];
+  let eq = 0; ids.forEach(id => eq += mercAccessoryAtk(id) + mercSetBonus(id, "combat_atk") + mercSetBonus(id, "all_skill"));
   return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
     + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
-    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill"));
+    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq);
 }
-function combatSurviveMult() {
+function combatSurviveMult(ids) {
+  ids = ids || [];
+  let eq = 0; ids.forEach(id => eq += mercSurvive(id) + mercSetBonus(id, "combat_survive"));   // 갑옷·투구·방패 + 세트 방어
   return 1 + Math.min(COMBAT.m_survive_cap, combatBuffTotals().survive + kingdomBonus("combat_survive")
-    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive"));
+    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive") + eq);
 }
 function combatAccountMult() { return 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k); }
 // 아군 방어 전력 = P_base × M_atk × M_survive × M_audience × M_account (resolution 공식)
+// P_base = Σ(combat_contribution + 무기 전투력) — 무기는 플랫 가산(캡 미참여).
 function allyPower() {
+  const ids = defenderIds();
   let pBase = 0;
-  defenderIds().forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")));
-  // 함정(미설치)·망루(미건설)는 0 — 시스템 도입 시 P_base에 가산
+  ids.forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")) + mercWeaponPower(id));
   const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
-  return pBase * combatAtkMult() * combatSurviveMult() * mAudience * combatAccountMult();
+  return pBase * combatAtkMult(ids) * combatSurviveMult(ids) * mAudience * combatAccountMult();
 }
 // 적 전력 배율 (raid_modifiers): 명성 1000당 +5% + 2연속격퇴 시 +15%
 function enemyPowerMult() {
@@ -790,10 +809,10 @@ function dungeonUnlocked(d) { return d.unlock === "raid_tier6" ? (state.combat.m
 function dungeonRunActive() { return !!(state.dungeon.run); }
 // 파티 방어전력 = 파견 용병 combat_contribution 합 × M_atk × M_survive × M_account (손님 응원 없음)
 function partyPower(party) {
-  const ids = party || state.dungeon.party;
+  const ids = (party || state.dungeon.party).filter(id => CHARACTERS[id]);
   let pBase = 0;
-  ids.forEach(id => { if (CHARACTERS[id]) pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")); });
-  return pBase * combatAtkMult() * combatSurviveMult() * combatAccountMult();
+  ids.forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")) + mercWeaponPower(id));
+  return pBase * combatAtkMult(ids) * combatSurviveMult(ids) * combatAccountMult();
 }
 // 층 적 전력: rec_power×(0.4+0.6×floor/floors), 보스층(마지막)=rec_power×1.1
 function floorEnemyPower(d, floor) {
@@ -890,6 +909,15 @@ function resolveDungeonRun() {
     const cardName = DUNGEON.rewards.boss.card;
     if (!cardOwned(cardName)) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 획득!`; }   // 첫 클리어 보장
     else if (Math.random() < DUNGEON.rewards.boss.repeat_rate) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 중복`; }
+    // 장비 드롭(보스 보장): 던전 고유 세트 1부위(랜덤) + 같은 등급 일반 장비 1개. ※ 드롭률은 SSOT 미정 → 보장 처리(기획 리포트)
+    const sdef = EQUIP_SET_BY_DUNGEON[d.name];
+    if (sdef) {
+      const slot = EQUIPMENT.slots[Math.floor(Math.random() * EQUIPMENT.slots.length)];
+      grantEquipment(`${sdef.name} ${slot}`);
+      const pool = EQUIP_CATALOG.filter(it => it.kind !== "set" && it.grade === sdef.grade);
+      if (pool.length) grantEquipment(pool[Math.floor(Math.random() * pool.length)].id);
+      cardTxt += ` · ⚔️ 장비 드롭`;
+    }
   }
   state.funds += funds;
   state.dungeon.run = null;   // 파티 복귀
@@ -899,6 +927,50 @@ function resolveDungeonRun() {
   state.dungeon.lastResult = result;
   log(result);
   needsFullRender = true;
+}
+
+
+/* ── 장비 엔진 (무기·방어구·세트 · 장착=용병 단위) ──────────────────────────── */
+function equipOwned(id) { return (state.equipment.owned[id] || 0) >= 1; }
+function grantEquipment(id) {
+  if (!EQUIP_BY_ID[id]) return false;
+  const had = equipOwned(id);
+  state.equipment.owned[id] = (state.equipment.owned[id] || 0) + 1;
+  if (!had) { log(`⚔️ 장비 획득: ${id}`); needsFullRender = true; }
+  return !had;
+}
+function mercSlots(id) { return state.equipment.equipped[id] || {}; }   // 읽기 전용(생성 안 함)
+function mercWeaponPower(id) { const it = EQUIP_BY_ID[mercSlots(id).무기]; return it ? equipItemPower(it) : 0; }
+function mercSurvive(id) {     // 갑옷+투구+방패 피해감소 합
+  const e = mercSlots(id); let s = 0;
+  ["갑옷", "투구", "무기"].forEach(slot => { const it = EQUIP_BY_ID[e[slot]]; if (it) s += equipItemSurvive(it); });
+  return s;
+}
+function mercAccessoryAtk(id) { const it = EQUIP_BY_ID[mercSlots(id).장신구]; return it ? equipItemAccessoryAtk(it) : 0; }
+// 이 용병에 장착된 세트의 2/4피스 효과 중 target 그룹 합
+function mercSetBonus(id, target) {
+  const e = mercSlots(id); const counts = {};
+  EQUIPMENT.slots.forEach(slot => { const it = EQUIP_BY_ID[e[slot]]; if (it && it.kind === "set") counts[it.set] = (counts[it.set] || 0) + 1; });
+  let s = 0;
+  EQUIPMENT.sets.forEach(set => {
+    const c = counts[set.name] || 0;
+    if (c >= 2 && set.pc2.g === target) s += set.pc2.v;
+    if (c >= 4 && set.pc4.g === target) s += set.pc4.v;
+  });
+  return s;
+}
+// 장착/해제 (용병 단위). 슬롯에 맞는 보유 장비만.
+function equipItem(mercId, slot, itemId) {
+  if (!CHARACTERS[mercId] || EQUIPMENT.slots.indexOf(slot) < 0) return;
+  if (itemId) {
+    const it = EQUIP_BY_ID[itemId];
+    if (!it || it.slot !== slot) { log("슬롯에 맞지 않는 장비입니다."); render(); return; }
+    if (!equipOwned(itemId)) { log("보유하지 않은 장비입니다."); render(); return; }
+  }
+  const e = state.equipment.equipped[mercId] || (state.equipment.equipped[mercId] = {});
+  if (itemId) { e[slot] = itemId; log(`🛡️ ${CHARACTERS[mercId].name} ${slot} ← ${itemId}`); }
+  else { delete e[slot]; log(`${CHARACTERS[mercId].name} ${slot} 해제`); }
+  render();
 }
 
 
@@ -1239,6 +1311,18 @@ function load() {
       state.dungeon.run = { dungeon: sd.run.dungeon, totalSec: sd.run.totalSec || total, remainingSec: Math.max(0, sd.run.remainingSec) };
     }
     if (typeof sd.lastResult === "string") state.dungeon.lastResult = sd.lastResult;
+  }
+
+  // 장비 복원 (존재하는 장비 id만, 슬롯 일치하는 장착만)
+  if (saved.equipment && typeof saved.equipment === "object") {
+    const se = saved.equipment;
+    if (se.owned && typeof se.owned === "object") for (const id in se.owned) { const k = id.normalize("NFC"); if (EQUIP_BY_ID[k] && typeof se.owned[id] === "number") state.equipment.owned[k] = Math.max(0, Math.floor(se.owned[id])); }
+    if (se.equipped && typeof se.equipped === "object") for (const mid in se.equipped) {
+      if (!CHARACTERS[mid] || typeof se.equipped[mid] !== "object") continue;
+      const slots = {};
+      EQUIPMENT.slots.forEach(slot => { const iid = (se.equipped[mid][slot] || "").normalize("NFC"); if (EQUIP_BY_ID[iid] && EQUIP_BY_ID[iid].slot === slot && state.equipment.owned[iid]) slots[slot] = iid; });
+      if (Object.keys(slots).length) state.equipment.equipped[mid] = slots;
+    }
   }
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
@@ -1638,6 +1722,37 @@ function renderCardsPets() {
   box.querySelectorAll(".pet-unequip").forEach(b => b.onclick = () => unequipPet(b.dataset.c, b.dataset.n));
 }
 
+// 장비 슬롯 셀렉트 옵션(해당 슬롯의 보유 장비)
+function equipSlotOptions(mercId, slot) {
+  const cur = mercSlots(mercId)[slot] || "";
+  let html = `<option value="">(${slot} 비움)</option>`;
+  EQUIP_CATALOG.filter(it => it.slot === slot && equipOwned(it.id)).forEach(it => {
+    const tag = equipItemPower(it) ? ` 전투력+${Math.round(equipItemPower(it))}` : equipItemSurvive(it) ? ` 피해-${Math.round(equipItemSurvive(it) * 100)}%` : "";
+    html += `<option value="${it.id}"${it.id === cur ? " selected" : ""}>${it.id}${tag}</option>`;
+  });
+  return html;
+}
+function renderEquipment() {
+  const box = document.getElementById("ui-equipment"); if (!box) return;
+  const wq = EQUIP_CATALOG.filter(it => it.kind === "weapon" && equipOwned(it.id)).length;
+  const aq = EQUIP_CATALOG.filter(it => it.kind === "armor" && equipOwned(it.id)).length;
+  const sq = EQUIP_CATALOG.filter(it => it.kind === "set" && equipOwned(it.id)).length;
+  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📒 장비 도감</span><span class="value">${wq + aq + sq}/${EQUIP_CATALOG.length} <span style="color:#80766a;font-weight:normal">(무기 ${wq}/25·방어구 ${aq}/15·세트 ${sq}/28)</span></span></div>`;
+  html += `<div class="gather-sub" style="margin-bottom:6px">던전 보스 드롭으로 획득 · 장착=용병 단위(효과 그 용병만)</div>`;
+  html += Object.keys(CHARACTERS).filter(isRecruited).map(id => {
+    const wp = Math.round(mercWeaponPower(id)), sv = Math.round(mercSurvive(id) * 100);
+    const e = mercSlots(id), counts = {};
+    EQUIPMENT.slots.forEach(s => { const it = EQUIP_BY_ID[e[s]]; if (it && it.kind === "set") counts[it.set] = (counts[it.set] || 0) + 1; });
+    const setTags = EQUIPMENT.sets.filter(s => (counts[s.name] || 0) >= 2).map(s => `${s.name.replace(" 세트", "")} ${counts[s.name] >= 4 ? "4pc" : "2pc"}`).join("·");
+    let sel = "";
+    EQUIPMENT.slots.forEach(slot => sel += `<select class="eq-slot" data-m="${id}" data-slot="${slot}">${equipSlotOptions(id, slot)}</select> `);
+    return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name}</span>
+      <span class="slot-status" style="font-size:11px">무기 +${wp} · 피해감소 ${sv}%${setTags ? ` · <span style="color:#7fb069">${setTags}</span>` : ""}</span></div>
+      <div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap">${sel}</div></div>`;
+  }).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".eq-slot").forEach(s => s.onchange = () => equipItem(s.dataset.m, s.dataset.slot, s.value));
+}
 // 던전 파티 슬롯 셀렉트 옵션(영입·비부상·미배치 용병 / 현재 슬롯값 유지)
 function dungeonPartyOptions(slotIndex) {
   const cur = state.dungeon.party[slotIndex] || "";
@@ -1919,6 +2034,7 @@ function render() {
   renderKingdom();
   renderCombat();
   renderDungeon();
+  renderEquipment();
   renderCardsPets();
   renderMaterials();
   renderRoster();
@@ -2014,6 +2130,12 @@ document.getElementById("btn-dgkey").onclick = () => {
   state.dungeon.keys = DUNGEON.key.cap;
   state.combat.maxTierCleared = 6;
   log("[개발] 던전 열쇠 가득 + 마왕 격퇴 처리(마왕성 심층 해금).");
+  render();
+};
+// 개발용: 장비 샘플 지급(마왕성 세트 4부위 + 전설 검·갑옷·투구 — 세트 4pc·전투력 테스트)
+document.getElementById("btn-eqsample").onclick = () => {
+  ["마왕성 세트 무기", "마왕성 세트 갑옷", "마왕성 세트 투구", "마왕성 세트 장신구", "전설 검", "전설 갑옷", "전설 투구", "거미줄 세트 무기", "거미줄 세트 갑옷"].forEach(grantEquipment);
+  log("[개발] 장비 샘플 지급(마왕성 세트 4부위 + 전설 장비 등).");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)
