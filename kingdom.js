@@ -10,9 +10,10 @@
 const KINGDOM = {
   level_max: 20,
 
-  // 무용담(stamps) — deferred(안주·제작·원정) 제외 14종
+  // 무용담(stamps) — deferred(제작·원정) 제외 15종 (안주는 요리 시스템 구현으로 해제)
   stamps: {
     "양조": { lv1: "+3%", max: "+30%", cost: { 홉: 50 },  target: "brew_speed" },
+    "안주": { lv1: "-3%", max: "-25%", cost: { 고기: 30 }, target: "cook_mat" },   // 요리 효율(안주 재료 -%) · 고기→몬스터고기 alias
     "접객": { lv1: "+3%", max: "+30%", cost: { 자금: 100 }, target: "satisfaction" },
     "경영": { lv1: "+5%", max: "+50%", cost: { 자금: 200 }, target: "funds_gain" },
     "홍보": { lv1: "+3%", max: "+30%", cost: { 자금: 150 }, target: "rep_gain" },
