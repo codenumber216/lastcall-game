@@ -208,6 +208,12 @@
   <div id="ui-cooking"></div>
 </div>
 
+<!-- ─────────── 대장일 (장비 제작) ─────────── -->
+<div class="card" id="card-smithing">
+  <div class="label">🔨 대장일 / 제작 <span style="font-weight:normal;font-size:12px">(부위·등급 지정 생산 → 장비 도감 · 던전 드롭과 공존)</span></div>
+  <div id="ui-smithing"></div>
+</div>
+
 <!-- ─────────── 스킬 (용병별 양조·조달 레벨) ─────────── -->
 <div class="card">
   <div class="label">📈 스킬 <span style="font-weight:normal;font-size:12px">(활동하면 XP 적립·레벨업 → 속도·산출 ↑)</span></div>
@@ -245,6 +251,7 @@
   <button id="btn-weather">[개발] 날씨 전환+특별</button>
   <button id="btn-cust">[개발] 손님/진상 테스트</button>
   <button id="btn-cook">[개발] 요리 Lv99+안주</button>
+  <button id="btn-smith">[개발] 대장일 Lv99+금속</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -269,6 +276,7 @@
 <script src="events.js"></script>
 <script src="customers.js"></script>
 <script src="cooking.js"></script>
+<script src="smithing.js"></script>
 
 <script>
 /* ============================================================================
@@ -344,6 +352,7 @@ function freshState() {
     snacks: {},               // 안주 재고 { 안주명: n }
     snackSlots: [null, null], // 비치 슬롯(2) — 비치 안주 효과 상시 적용
     cookSlot: { charId: null, snackId: COOKING.snacks[0].name, progressSec: 0 },  // 요리 슬롯(안주 제조)
+    smithing: { charId: null, part: SMITHING.parts[0], grade: "일반", progressSec: 0 },  // 대장일 슬롯(장비 제작)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -547,7 +556,7 @@ function freshSkills() {
   const s = {};
   for (const id in CHARACTERS) {
     const c = CHARACTERS[id];
-    s[id] = { 양조: { lv: c.brewLevel, xp: 0 }, 조달: { lv: c.gatherLevel, xp: 0 }, 전투: { lv: c.combatLevel || 1, xp: 0 }, 요리: { lv: 1, xp: 0 } };
+    s[id] = { 양조: { lv: c.brewLevel, xp: 0 }, 조달: { lv: c.gatherLevel, xp: 0 }, 전투: { lv: c.combatLevel || 1, xp: 0 }, 요리: { lv: 1, xp: 0 }, 대장일: { lv: 1, xp: 0 } };
   }
   return s;
 }
@@ -606,6 +615,7 @@ function assignedCharIds() {
   if (state.dungeon && state.dungeon.run) state.dungeon.party.forEach(id => set.add(id));  // 원정 중 파티 점유
   if (state.serveAssign) set.add(state.serveAssign);   // 접객 담당 점유
   if (state.cookSlot && state.cookSlot.charId) set.add(state.cookSlot.charId);   // 요리 담당 점유
+  if (state.smithing && state.smithing.charId) set.add(state.smithing.charId);   // 대장일 담당 점유
   return set;
 }
 function isCharFree(id) { return !assignedCharIds().has(id); }
@@ -1252,6 +1262,60 @@ function assignCook(charId) {
 function setCookSnack(snackId) { if (SNACK_BY_ID[snackId]) { state.cookSlot.snackId = snackId; state.cookSlot.progressSec = 0; render(); } }
 
 
+/* ── 대장일(제작) 엔진 (t29) ──────────────────────────────────────────────── */
+function smithGradeUnlocked(grade) { return skillLv(state.smithing.charId, "대장일") >= SMITHING.grade_unlock_by_level[grade]; }
+function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level); }
+function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat")); }   // 제작 무용담 재료 -%
+// 레시피: 부위 기본재료 × 등급배수 × 제작무용담. 전설은 전설재료 추가.
+function smithRecipe(part, grade) {
+  const out = {}; const base = SMITHING.base_mat_by_part[part], mult = SMITHING.qty_mult_by_grade[grade], cm = craftMatMult();
+  for (const m in base) out[m] = base[m] * mult * cm;
+  if (grade === "전설") for (const m in SMITHING.legendary_extra) out[m] = (out[m] || 0) + SMITHING.legendary_extra[m] * cm;
+  return out;
+}
+function hasSmithMaterials(part, grade) { const r = smithRecipe(part, grade); for (const m in r) if ((state.materials[m] || 0) < r[m]) return false; return true; }
+function craftSeconds(grade) { return (SMITHING.craft_time_h_by_grade[grade] * 3600 / TIME_SCALE) / (1 + smithSpeedBonus(state.smithing.charId)); }
+// 품질(등급업 확률) = 장인 술통(SSOT) + 망치꾼 클래스 + 제작 드래곤 펫 (합산)
+function qualityUpgradeChance() {
+  let q = kingdomBonus("quality");
+  const sm = state.smithing.charId;
+  if (sm && CHARACTERS[sm].class === "망치꾼") q += SMITHING.quality.망치꾼_class_bonus;
+  if (petEquippedMerc("제작 드래곤")) q += SMITHING.quality.dragon_pet_bonus;
+  return Math.min(0.95, q);
+}
+function nextGrade(grade) { const i = SMITHING.grades.indexOf(grade); return i >= 0 && i < SMITHING.grades.length - 1 ? SMITHING.grades[i + 1] : grade; }
+// 제작 진행: 양조/요리와 동형. 완성 시 재료 차감 → (품질 롤로 등급업) 장비 적재 + 대장일 XP.
+function tickSmith(dtSec) {
+  const s = state.smithing; if (!s || !s.charId) return;
+  const char = CHARACTERS[s.charId]; if (!char) return;
+  if (!smithGradeUnlocked(s.grade)) return;   // 등급 미해금(레벨 부족) → 대기
+  const oneSec = craftSeconds(s.grade);
+  s.progressSec += dtSec;
+  while (s.progressSec >= oneSec) {
+    if (!hasSmithMaterials(s.part, s.grade)) { s.progressSec = oneSec; break; }
+    const r = smithRecipe(s.part, s.grade);
+    for (const m in r) state.materials[m] = (state.materials[m] || 0) - r[m];
+    let grade = s.grade;
+    if (Math.random() < qualityUpgradeChance()) grade = nextGrade(grade);   // 품질 등급업
+    grantEquipment(`${grade} ${s.part}`);
+    addSkillXp(s.charId, "대장일", SMITHING.xp_per_craft_by_grade[s.grade]);
+    s.progressSec -= oneSec;
+  }
+}
+function assignSmith(charId) {
+  if (charId) {
+    if (!CHARACTERS[charId] || !isRecruited(charId)) { log("아직 영입되지 않은 용병입니다."); render(); return; }
+    if (isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중입니다.`); render(); return; }
+    if (assignedCharIds().has(charId) && state.smithing.charId !== charId) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  }
+  state.smithing.charId = charId && CHARACTERS[charId] ? charId : null;
+  log(charId ? `${CHARACTERS[charId].name} → 대장일 담당 배치` : "대장일 담당 해제");
+  render();
+}
+function setSmithPart(part) { if (SMITHING.parts.indexOf(part) >= 0) { state.smithing.part = part; state.smithing.progressSec = 0; render(); } }
+function setSmithGrade(grade) { if (SMITHING.grades.indexOf(grade) >= 0) { state.smithing.grade = grade; state.smithing.progressSec = 0; render(); } }
+
+
 /* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
    버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
 function tick(dtSec) {
@@ -1263,6 +1327,7 @@ function tick(dtSec) {
   tickOrders(dtSec);
   tickDungeon(dtSec);      // 던전 키 충전 + 진행 중 원정 정산
   tickCook(dtSec);         // 안주 제조(요리 슬롯)
+  tickSmith(dtSec);        // 장비 제작(대장일 슬롯)
   tickCustomers(dtSec);    // 만족도 게이지 수렴 + 진상 처리 (폴링 전에 게이지 갱신)
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
 }
@@ -1526,7 +1591,7 @@ function load() {
     for (const id in state.skills) {
       const sv = saved.skills[id];
       if (!sv) continue;
-      ["양조", "조달", "전투", "요리"].forEach(sk => {
+      ["양조", "조달", "전투", "요리", "대장일"].forEach(sk => {
         if (sv[sk] && typeof sv[sk].lv === "number") {
           state.skills[id][sk].lv = Math.min(SKILLS.level_max, Math.max(1, sv[sk].lv));
           state.skills[id][sk].xp = sv[sk].xp || 0;
@@ -1631,6 +1696,13 @@ function load() {
     const cid = saved.cookSlot.charId; if (cid && CHARACTERS[cid]) state.cookSlot.charId = cid;
     const sid = (saved.cookSlot.snackId || "").normalize("NFC"); if (SNACK_BY_ID[sid]) state.cookSlot.snackId = sid;
     if (typeof saved.cookSlot.progressSec === "number") state.cookSlot.progressSec = Math.max(0, saved.cookSlot.progressSec);
+  }
+  if (saved.smithing && typeof saved.smithing === "object") {
+    const sd = saved.smithing;
+    if (sd.charId && CHARACTERS[sd.charId]) state.smithing.charId = sd.charId;
+    if (SMITHING.parts.indexOf(sd.part) >= 0) state.smithing.part = sd.part;
+    if (SMITHING.grades.indexOf(sd.grade) >= 0) state.smithing.grade = sd.grade;
+    if (typeof sd.progressSec === "number") state.smithing.progressSec = Math.max(0, sd.progressSec);
   }
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
@@ -1879,12 +1951,12 @@ function renderSkills() {
   const available = stageMercSlots(state.tavernStage);
   document.getElementById("ui-skills").innerHTML = Object.keys(CHARACTERS).map((id, idx) => {
     const c = CHARACTERS[id], locked = idx >= available;
-    const bw = state.skills[id].양조, gd = state.skills[id].조달, ct = state.skills[id].전투, ck = state.skills[id].요리;
+    const bw = state.skills[id].양조, gd = state.skills[id].조달, ct = state.skills[id].전투, ck = state.skills[id].요리, sm = state.skills[id].대장일;
     const pct = s => s.lv >= SKILLS.level_max ? 100 : Math.floor((s.xp / SKILLS.xpToNext(s.lv)) * 100);
     return `<div class="slot-row" style="opacity:${locked ? 0.45 : 1}">
       <div class="slot-head"><span class="slot-name">${c.name}${c.brewmaster ? " ⭐" : ""}${locked ? " 🔒" : ""}${isInjured(id) ? " 🤕" : ""}</span>
-        <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill}) · 요리 ${ck.lv}</span></div>
-      <div class="gather-sub">양조 ${pct(bw)}% · 조달 ${pct(gd)}% · 전투 ${pct(ct)}% · 요리 ${pct(ck)}%</div>
+        <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill}) · 요리 ${ck.lv} · 대장일 ${sm.lv}</span></div>
+      <div class="gather-sub">양조 ${pct(bw)}% · 조달 ${pct(gd)}% · 전투 ${pct(ct)}% · 요리 ${pct(ck)}% · 대장일 ${pct(sm)}%</div>
     </div>`;
   }).join("");
 }
@@ -1944,6 +2016,49 @@ function kEffText(def, lv) {
   return (e.v < 0 ? "" : "+") + Math.floor(e.v * 100) + "%";   // 유저 유리: 표시 floor(증가형은 보수적)
 }
 function kCostText(cost) { return Object.entries(cost).map(([n, v]) => `${n} ${v}`).join(", "); }
+function smithCharOptions() {
+  const cur = state.smithing.charId || "";
+  let html = `<option value="">(대장일 담당 비움)</option>`;
+  Object.keys(CHARACTERS).forEach(id => { if (!isRecruited(id) || isInjured(id)) return; if (id !== cur && !isCharFree(id)) return; html += `<option value="${id}"${id === cur ? " selected" : ""}>${CHARACTERS[id].name} (대장일Lv${skillLv(id, "대장일")}${CHARACTERS[id].class === "망치꾼" ? "·망치꾼" : ""})</option>`; });
+  return html;
+}
+function smithSlotView() {
+  const s = state.smithing, char = s.charId ? CHARACTERS[s.charId] : null;
+  let status = "대장일 담당 미배치", pct = 0;
+  if (char) {
+    const oneSec = craftSeconds(s.grade);
+    pct = Math.min(100, (s.progressSec / oneSec) * 100);
+    if (!smithGradeUnlocked(s.grade)) status = `${s.grade} 등급: 대장일 Lv${SMITHING.grade_unlock_by_level[s.grade]} 필요 (현재 ${skillLv(s.charId, "대장일")})`;
+    else if (!hasSmithMaterials(s.part, s.grade)) status = "재료 부족 — 대기";
+    else status = `${char.name} 제작 중 · ${oneSec.toFixed(1)}초/개`;
+  }
+  return { status, pct, active: !!char };
+}
+function renderSmithing() {
+  const box = document.getElementById("ui-smithing"); if (!box) return;
+  const s = state.smithing, v = smithSlotView();
+  const recipe = smithRecipe(s.part, s.grade);
+  const recipeTxt = Object.entries(recipe).map(([m, q]) => `${m} ${Math.ceil(q)}`).join("·");
+  const q = Math.round(qualityUpgradeChance() * 100);
+  let html = `<div class="slot-row${v.active ? " active" : ""}"><div class="slot-head"><span class="slot-name">제작</span><span class="slot-status">${v.status}</span></div>
+    <div class="bar-bg"><div class="bar-fill smith-bar" style="width:${v.pct}%;background:#9a8470"></div></div>
+    <div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+      <select class="smith-char">${smithCharOptions()}</select>
+      <select class="smith-part">${SMITHING.parts.map(p => `<option value="${p}"${p === s.part ? " selected" : ""}>${p}</option>`).join("")}</select>
+      <select class="smith-grade">${SMITHING.grades.map(g => `<option value="${g}"${g === s.grade ? " selected" : ""}>${g} (Lv${SMITHING.grade_unlock_by_level[g]}·${SMITHING.craft_time_h_by_grade[g]}h)</option>`).join("")}</select>
+    </div>
+    <div class="gather-sub" style="margin-top:4px">→ <b>${s.grade} ${s.part}</b> · 재료 ${recipeTxt}${q > 0 ? ` · 품질 등급업 ${q}%` : ""}</div></div>`;
+  box.innerHTML = html;
+  const sc = box.querySelector(".smith-char"); if (sc) sc.onchange = () => assignSmith(sc.value);
+  const sp = box.querySelector(".smith-part"); if (sp) sp.onchange = () => setSmithPart(sp.value);
+  const sg = box.querySelector(".smith-grade"); if (sg) sg.onchange = () => setSmithGrade(sg.value);
+}
+function updateSmithLive() {
+  const box = document.getElementById("ui-smithing"); if (!box) return;
+  const v = smithSlotView();
+  const st = box.querySelector(".slot-status"); if (st && st.textContent !== v.status) st.textContent = v.status;
+  const bar = box.querySelector(".smith-bar"); if (bar) bar.style.width = v.pct + "%";
+}
 function cookCharOptions() {
   const cur = state.cookSlot.charId || "";
   let html = `<option value="">(요리 담당 비움)</option>`;
@@ -2439,7 +2554,7 @@ function renderLive() {
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
   // 발효·채집·버프·던전·손님 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
-  updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive(); updateCookingLive();
+  updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive(); updateCookingLive(); updateSmithLive();
 }
 
 function render() {
@@ -2458,6 +2573,7 @@ function render() {
   renderGather();
   renderBrewSlots();
   renderCooking();
+  renderSmithing();
   renderSkills();
   renderDrinkStock();
   renderBuffs();
@@ -2579,6 +2695,14 @@ document.getElementById("btn-cook").onclick = () => {
   ["구운 고기", "왕의 만찬", "마석 구이", "슬라임 젤리"].forEach(n => state.snacks[n] = (state.snacks[n] || 0) + 5);
   checkCardPetUnlocks();
   log("[개발] 전 용병 요리 Lv99 + 안주 4종 지급.");
+  render();
+};
+// 개발용: 전 용병 대장일 Lv99 + 제작 금속/재료 지급(제작·등급 해금·펫 테스트)
+document.getElementById("btn-smith").onclick = () => {
+  for (const id in state.skills) state.skills[id].대장일.lv = 99;
+  ["광석", "목재", "나무껍질", "마석가루", "거인고기", "슬라임정수", "전설홉"].forEach(m => state.materials[m] = (state.materials[m] || 0) + 500);
+  checkCardPetUnlocks();
+  log("[개발] 전 용병 대장일 Lv99 + 제작 재료 500씩.");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)

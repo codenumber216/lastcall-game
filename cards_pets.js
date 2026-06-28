@@ -69,9 +69,10 @@ const PETS = {
     { id: "영주의 여우", specialty: "범용", effect: "명성·자금 +15%",   g: "funds_gain", v: 0.15, gate: { type: "unmapped" } }, // '엔딩 도달' 미구현
     { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     { id: "접객 고양이", specialty: "접객", effect: "손님 만족 +8%",   g: null, v: 0, gate: { type: "satisfaction_gauge", v: 90 } }, // t27: 만족도 게이지 90 → baseline +8(코드 특수 연결)
-    { id: "요리 너구리", specialty: "요리", effect: "안주 효과 +15%",  g: null, v: 0, gate: { type: "skill", skill: "요리", lv: 50 } } // t28: 요리 Lv.50. '안주 효과 +15%'는 코드 특수 연결(안주 value ×1.15)
+    { id: "요리 너구리", specialty: "요리", effect: "안주 효과 +15%",  g: null, v: 0, gate: { type: "skill", skill: "요리", lv: 50 } }, // t28: 요리 Lv.50. '안주 효과 +15%'는 코드 특수 연결(안주 value ×1.15)
+    { id: "제작 드래곤", specialty: "대장일", effect: "장비 품질 +1등급 확률", g: null, v: 0, gate: { type: "skill", skill: "대장일", lv: 80 } } // t29: 대장일 Lv.80. 품질(등급업 확률) 코드 특수 연결
   ],
-  deferred: ["제작 드래곤", "경영 부엉이", "홍보 앵무", "원정 군마", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
+  deferred: ["경영 부엉이", "홍보 앵무", "원정 군마", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
 };
 
 /* ── 도감 완성도 마일스톤 (SSOT completion_log.completion_basis / milestone_rule) ──
