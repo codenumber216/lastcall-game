@@ -11,7 +11,8 @@ const CUSTOMERS = {
     drift_per_hour: 5,                 // baseline 방향 ±5/h 수렴
     inc: { 접객: 2, 마라: 3, 축제: 10, 진상정중: 5 },   // 접객/마라=배치 /h, 축제·진상정중=1회
     dec: { 품절: 10, 진상방치: 8, 습격패배: 5 },         // 품절=/h, 방치·패배=1회
-    // baseline = 50 + (접객 무용담% + 환대 술통%) × 50 (캡 100) — 코드는 kingdomBonus("satisfaction") 사용
+    // baseline = 50 + (접객 무용담% + 환대 술통%) × 50 + 접객고양이 보너스 (캡 100)
+    baseline_pet_bonus: { "접객 고양이": 8 },   // ④ 접객 고양이 장착(계정 단위) → baseline +8
     tiers: [
       { max: 20,  rep_mult: 0.5 },   // 0~20 손님 이탈
       { max: 50,  rep_mult: 1.0 },   // 21~50 기본
@@ -22,16 +23,17 @@ const CUSTOMERS = {
   types: { 일반: 0.55, 술꾼: 0.15, 용병: 0.08, 상인: 0.08, 마법사: 0.06, 음유시인: 0.03, 귀족: 0.03, 모험가: 0.02 }, // 합 1.0
   card_unlock_serves: 30,
   card_link: { 용병: "용병 단골", 상인: "상인 단골", 마법사: "마법사 단골" },   // 해당 종류 30명 접대 → 카드
+  auto_serve: { enabled: true, per_hour: 30 },   // ⑤ 접객 담당 용병 배치 시 시간당 30명 자동 접대(미배치=수동 버튼 10명/회)
   nuisance: {
     daily_prob: 0.5,
     mult_during_대목: 2.0,
-    afk_penalty: 8,        // 접객 미배치 + 방치 시 만족도 -8
-    success_rate: 0.7,     // ※ SSOT 미정(넉살/CHA 스탯 없음) → 0.7 가정(리포트). 접객 용병 자동 대응·수동 정중 공용
-    grace_h: 6,            // ※ SSOT 미정(방치 유예) → 6게임시간 가정(리포트)
+    afk_penalty: 8,                  // 접객 미배치 + 방치 시 만족도 -8
+    neglect_grace_h: 6,              // ② 방치 유예 6게임시간 (접객 배치 시 즉시 대응·유예 무관)
+    success_by_class: { 해결사: 0.90, 약장수: 0.85, 입담꾼: 0.85, default: 0.65 }, // ① 정중 응대 성공률(배치 용병 클래스). 미지정=0.65
     response: {
       정중: { sat_success: 5, sat_fail: 3 },   // 성공 +5(단골 전환)·실패 -3
       술서비스: { any_drink: 1, sat: 5 },       // 술 1병 → 만족 +5(확정)
-      진호출: { rep_penalty: 20 }              // ※ SSOT '명성 -소량' 수치 없음 → 20 가정(리포트)
+      진호출: { rep_loss: 10 }                 // ③ 진 호출 → 명성 -10
     }
   }
 };
