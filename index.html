@@ -136,6 +136,12 @@
   <div id="ui-events"></div>
 </div>
 
+<!-- ─────────── 손님 · 만족도 · 진상 ─────────── -->
+<div class="card" id="card-customers">
+  <div class="label">😊 손님 / 만족도 <span style="font-weight:normal;font-size:12px">(접객 명성 배수 · 손님 종류 단골 · 진상 대응)</span></div>
+  <div id="ui-customers"></div>
+</div>
+
 <!-- ─────────── 왕국 성장 (무용담·술통 기부) ─────────── -->
 <div class="card" id="card-kingdom">
   <div class="label">🏛️ 왕국 성장 <span style="font-weight:normal;font-size:12px">(자원 기부 → 영구 보너스 · Lv 1~20)</span></div>
@@ -231,6 +237,7 @@
   <button id="btn-dgkey">[개발] 던전 열쇠+마왕격퇴</button>
   <button id="btn-eqsample">[개발] 장비 샘플 지급</button>
   <button id="btn-weather">[개발] 날씨 전환+특별</button>
+  <button id="btn-cust">[개발] 손님/진상 테스트</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -253,6 +260,7 @@
 <script src="dungeon.js"></script>
 <script src="equipment.js"></script>
 <script src="events.js"></script>
+<script src="customers.js"></script>
 
 <script>
 /* ============================================================================
@@ -320,6 +328,10 @@ function freshState() {
     dungeon: freshDungeon(),  // 던전 원정(키·파티·누적 클리어·진행 중 런)
     equipment: freshEquipment(),  // 장비(보유 도감 + 용병별 4슬롯 장착)
     events: freshEvents(),    // 이벤트 & 날씨(날씨·일일·특별 이벤트)
+    satisfaction: CUSTOMERS.satisfaction.start,  // 만족도 게이지(0~100, 시작 50)
+    serveAssign: null,        // 접객 담당 용병(만족도 +/h·진상 자동 대응)
+    customerServes: {},       // 손님 종류별 누적 접대 { 종류: n }
+    nuisance: { active: false, timerSec: 0 },    // 진상 손님 상태
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -463,16 +475,17 @@ function grantPet(name) {
 function maxSkillLv(skill) { let m = 0; for (const id in CHARACTERS) m = Math.max(m, skillLv(id, skill)); return m; }
 function cardGateMet(g) {
   if (!g) return false;
-  if (g.type === "satisfaction") return (kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction")) >= g.v; // B확정(2026-06-23): 영구 만족 보너스 합(접객 무용담+환대 술통)으로 판정. 일시 술버프 미포함 → 게이트 깜빡임 방지
-
+  if (g.type === "satisfaction_gauge") return state.satisfaction >= g.v;   // t27: 만족도 게이지 직접 판정(술꾼 75)
+  if (g.type === "customer_type") return (state.customerServes[g.customer] || 0) >= CUSTOMERS.card_unlock_serves;  // 종류 30명 접대
   if (g.type === "tavernStage") return state.tavernStage >= g.v;
-  return false; // raidTier는 격퇴 시 처리
+  return false; // raidTier·dungeon_boss·음유시인_이벤트는 발생 시 처리
 }
 function petGateMet(g) {
   if (!g) return false;
   if (g.type === "skill") return maxSkillLv(g.skill) >= g.lv;
   if (g.type === "clears") return (state.combat.clears || 0) >= g.n;
   if (g.type === "dual") return maxSkillLv(g.a.skill) >= g.a.lv && maxSkillLv(g.b.skill) >= g.b.lv;
+  if (g.type === "satisfaction_gauge") return state.satisfaction >= g.v;   // t27: 접객 고양이 만족도 90
   return false; // unmapped / raidTier는 자동획득 보류·격퇴 시 처리
 }
 // 조건형(손님 카드·스킬/격퇴/이중 펫) 폴링: tick마다 호출(이미 보유는 무시).
@@ -579,6 +592,7 @@ function assignedCharIds() {
   state.brewSlots.forEach(s => { if (s.charId) set.add(s.charId); });
   for (const act in state.gatherAssign) if (state.gatherAssign[act]) set.add(state.gatherAssign[act]);
   if (state.dungeon && state.dungeon.run) state.dungeon.party.forEach(id => set.add(id));  // 원정 중 파티 점유
+  if (state.serveAssign) set.add(state.serveAssign);   // 접객 담당 점유
   return set;
 }
 function isCharFree(id) { return !assignedCharIds().has(id); }
@@ -765,6 +779,7 @@ function applyDefeat(severe, ally, enemy, ratio, tag) {
     if (pool.length) { const v = pool[Math.floor(Math.random() * pool.length)]; injureMerc(v); inj = `·${CHARACTERS[v].name} 부상(2h)`; }
   }
   state.combat.consecutiveClears = 0;
+  state.satisfaction = clampSat(state.satisfaction - SAT.dec.습격패배);   // 습격 패배 만족도 -5
   state.combat.lastResult = `${tag} ${severe ? "완패" : "패배"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 술 -${Math.round(drinkLoss * 100)}%·자금 -${Math.round(fundsLoss * 100)}%·방벽 -${d.wall}${inj}`;
   log(`🛡️ ${state.combat.lastResult}`);
 }
@@ -1012,7 +1027,10 @@ function musicRepMult() { return specialActive("음유시인") ? EVENTS.special[
 function rollWeather() {
   const r = Math.random(); let acc = 0, pick = EVENTS.weather.distribution[0];
   for (const w of EVENTS.weather.distribution) { acc += w.prob; if (r <= acc) { pick = w; break; } }
-  if (pick.name !== state.events.weather) { state.events.weather = pick.name; needsFullRender = true; if (!settling) log(`${pick.icon} 날씨가 '${pick.name}'(으)로 바뀌었습니다 — ${pick.desc}`); }
+  if (pick.name !== state.events.weather) {
+    state.events.weather = pick.name; needsFullRender = true; if (!settling) log(`${pick.icon} 날씨가 '${pick.name}'(으)로 바뀌었습니다 — ${pick.desc}`);
+    if (pick.name === "축제분위기") state.satisfaction = clampSat(state.satisfaction + SAT.inc.축제);   // 축제 만족도 +10(1회)
+  }
 }
 function rollDailyEvents() {
   const L = EVENTS.daily.list;
@@ -1041,6 +1059,9 @@ function onDayBoundary() {
   if (day % EVENTS.special["대목"].frequency_days === 0) startSpecial("대목");
   if (day % EVENTS.special["마왕의외상"].frequency_days === 0) startSpecial("마왕의외상");
   if (Math.random() < EVENTS.special["음유시인"].daily_prob) { startSpecial("음유시인"); if (Math.random() < EVENTS.special["음유시인"].card_rate) grantCard(EVENTS.special["음유시인"].card); }
+  // 진상 손님 발생(일확률 0.5, 대목 중 ×2)
+  const np = CUSTOMERS.nuisance.daily_prob * (specialActive("대목") ? CUSTOMERS.nuisance.mult_during_대목 : 1);
+  if (!state.nuisance.active && Math.random() < np) { state.nuisance.active = true; state.nuisance.timerSec = CUSTOMERS.nuisance.grace_h * 3600 / TIME_SCALE; needsFullRender = true; if (!settling) log("😠 진상 손님이 나타났습니다! (접객 용병 배치 시 자동 대응)"); }
   rollDailyEvents();
 }
 function tickEvents(dtSec) {
@@ -1055,6 +1076,81 @@ function tickEvents(dtSec) {
 }
 
 
+/* ── 손님·만족도·진상 엔진 (t27) ──────────────────────────────────────────── */
+const SAT = CUSTOMERS.satisfaction;
+function clampSat(s) { return Math.max(SAT.min, Math.min(SAT.max, s)); }
+// baseline = 50 + (접객 무용담% + 환대 술통%) × 50 (캡 100)
+function satisfactionBaseline() { return Math.min(100, 50 + kingdomBonus("satisfaction") * 50); }
+// 만족도 임계 → 접객 명성/자금 배수 (명성 getter, power 캡 별개)
+function satisfactionRepMult() { const s = state.satisfaction; for (const t of SAT.tiers) if (s <= t.max) return t.rep_mult; return 1; }
+function serveMerc() { const id = state.serveAssign; return (id && CHARACTERS[id] && isRecruited(id) && !isInjured(id)) ? id : null; }
+function anyDrinkSoldOut() { return Object.values(state.drinks).reduce((a, b) => a + b, 0) === 0; }
+// 손님 종류 추첨 + 누적 접대(접객 1회당 a.per명). 30명 → 해당 종류 단골 카드.
+function drawCustomerType() { const r = Math.random(); let acc = 0; for (const t in CUSTOMERS.types) { acc += CUSTOMERS.types[t]; if (r <= acc) return t; } return "일반"; }
+function serveCustomers(n) {
+  for (let i = 0; i < n; i++) {
+    const t = drawCustomerType();
+    state.customerServes[t] = (state.customerServes[t] || 0) + 1;
+    if (CUSTOMERS.card_link[t] && state.customerServes[t] >= CUSTOMERS.card_unlock_serves) grantCard(CUSTOMERS.card_link[t]);
+  }
+}
+// 진상 자동 대응(접객 용병): 넉살 성공률
+function resolveNuisanceAuto(sm) {
+  const n = state.nuisance, R = CUSTOMERS.nuisance.response.정중;
+  if (Math.random() < CUSTOMERS.nuisance.success_rate) { state.satisfaction = clampSat(state.satisfaction + R.sat_success); if (!settling) log(`🙆 ${CHARACTERS[sm].name}이(가) 진상 손님을 넉살로 달랬습니다 — 만족도 +${R.sat_success}`); }
+  else { state.satisfaction = clampSat(state.satisfaction - R.sat_fail); if (!settling) log(`🙅 ${CHARACTERS[sm].name}의 진상 대응 실패 — 만족도 -${R.sat_fail}`); }
+  n.active = false; needsFullRender = true;
+}
+function tickNuisance(dtSec) {
+  const n = state.nuisance; if (!n.active) return;
+  const sm = serveMerc();
+  if (sm) resolveNuisanceAuto(sm);   // 접객 용병 배치 → 자동 대응
+  else { n.timerSec -= dtSec; if (n.timerSec <= 0) { state.satisfaction = clampSat(state.satisfaction - CUSTOMERS.nuisance.afk_penalty); n.active = false; needsFullRender = true; if (!settling) log(`😡 진상 손님 방치 — 만족도 -${CUSTOMERS.nuisance.afk_penalty}`); } }
+}
+function tickCustomers(dtSec) {
+  const gameH = dtSecToGameHours(dtSec);
+  if (gameH > 0) {
+    const base = satisfactionBaseline();
+    let s = state.satisfaction;
+    if (s !== base) { const dir = s < base ? 1 : -1; s += dir * Math.min(SAT.drift_per_hour * gameH, Math.abs(base - s)); }  // baseline 수렴(±5/h, 캡)
+    let mod = 0; const sm = serveMerc();
+    if (sm) mod += (sm === "마라" ? SAT.inc.마라 : SAT.inc.접객);   // 접객 +2/h · 마라 +3/h
+    if (anyDrinkSoldOut()) mod -= SAT.dec.품절;                     // 술 품절 -10/h
+    state.satisfaction = clampSat(s + mod * gameH);
+  }
+  tickNuisance(dtSec);
+}
+// 수동 진상 대응
+function nuisanceRespond(kind) {
+  const n = state.nuisance; if (!n.active) { log("진상 손님이 없습니다."); render(); return; }
+  const R = CUSTOMERS.nuisance.response;
+  if (kind === "정중") {
+    if (Math.random() < CUSTOMERS.nuisance.success_rate) { state.satisfaction = clampSat(state.satisfaction + R.정중.sat_success); log(`🙆 정중 응대 성공 — 단골 전환·만족도 +${R.정중.sat_success}`); }
+    else { state.satisfaction = clampSat(state.satisfaction - R.정중.sat_fail); log(`🙅 정중 응대 실패 — 만족도 -${R.정중.sat_fail}`); }
+    n.active = false;
+  } else if (kind === "술") {
+    const total = Object.values(state.drinks).reduce((a, b) => a + b, 0);
+    if (total < R.술서비스.any_drink) { log("서비스할 술이 없습니다."); render(); return; }
+    let need = R.술서비스.any_drink; for (const id in state.drinks) { if (need <= 0) break; const t = Math.min(need, state.drinks[id]); state.drinks[id] -= t; need -= t; }
+    state.satisfaction = clampSat(state.satisfaction + R.술서비스.sat); log(`🍺 술 서비스 — 만족도 +${R.술서비스.sat}`); n.active = false;
+  } else if (kind === "진호출") {
+    state.reputation = Math.max(0, state.reputation - R.진호출.rep_penalty); log(`🚪 진 호출 — 진상 퇴장, 명성 -${R.진호출.rep_penalty}`); n.active = false;
+  }
+  needsFullRender = true; render();
+}
+// 접객 담당 배치
+function assignServe(charId) {
+  if (charId) {
+    if (!CHARACTERS[charId] || !isRecruited(charId)) { log("아직 영입되지 않은 용병입니다."); render(); return; }
+    if (isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중입니다.`); render(); return; }
+    if (assignedCharIds().has(charId) && state.serveAssign !== charId) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  }
+  state.serveAssign = charId && CHARACTERS[charId] ? charId : null;
+  log(charId ? `${CHARACTERS[charId].name} → 접객 담당 배치` : "접객 담당 해제");
+  render();
+}
+
+
 /* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
    버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
 function tick(dtSec) {
@@ -1065,6 +1161,7 @@ function tick(dtSec) {
   tickCombat(dtSec);
   tickOrders(dtSec);
   tickDungeon(dtSec);      // 던전 키 충전 + 진행 중 원정 정산
+  tickCustomers(dtSec);    // 만족도 게이지 수렴 + 진상 처리 (폴링 전에 게이지 갱신)
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
 }
 
@@ -1419,6 +1516,12 @@ function load() {
     if (sv.titles && typeof sv.titles === "object") for (const t in sv.titles) if (sv.titles[t]) state.events.titles[t] = true;
   }
 
+  // 손님·만족도·진상 복원 (구형 세이브엔 없으므로 기본값 유지)
+  if (typeof saved.satisfaction === "number") state.satisfaction = clampSat(saved.satisfaction);
+  if (saved.serveAssign && CHARACTERS[saved.serveAssign]) state.serveAssign = saved.serveAssign;
+  if (saved.customerServes && typeof saved.customerServes === "object") for (const t in saved.customerServes) { if (CUSTOMERS.types[t] && typeof saved.customerServes[t] === "number") state.customerServes[t] = Math.max(0, Math.floor(saved.customerServes[t])); }
+  if (saved.nuisance && typeof saved.nuisance === "object") { state.nuisance.active = !!saved.nuisance.active; state.nuisance.timerSec = typeof saved.nuisance.timerSec === "number" ? Math.max(0, saved.nuisance.timerSec) : 0; }
+
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
     state.onboarding = { step: saved.onboarding.step || 1, done: !!saved.onboarding.done };
@@ -1680,11 +1783,12 @@ function renderSkills() {
 function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult(); }   // 75% x1.5 × 90% x1.15 × 축제 x1.5 × 음유시인 x2 (곱 누적)
 function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain")) * getterMult(); }   // 90% 전 획득 x1.15
 function doServe() {
-  const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction");
-  const rep = Math.round(a.rep * a.per * sat * repGainMult() * weatherServeRepMult() * daemokServeMult());   // 손님±%(날씨) · 대목 ×3 = 접객 명성에만 추가
-  const funds = Math.round(a.funds * sat * fundsGainMult());
+  const a = REP_ACTIONS.serve, satMult = satisfactionRepMult();   // 만족도 임계 배수(0.5~1.20)
+  const rep = Math.round(a.rep * a.per * satMult * repGainMult() * weatherServeRepMult() * daemokServeMult());   // 손님±%(날씨) · 대목 ×3 · 만족도 임계
+  const funds = Math.round(a.funds * satMult * fundsGainMult());
   state.reputation += rep; state.funds += funds;
-  log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${funds}.`); render();
+  serveCustomers(a.per);   // 손님 종류 추첨·누적(30명 → 종류 단골)
+  log(`🍻 접객(손님 ${a.per}명·만족도 ${Math.round(state.satisfaction)}) — 명성 +${rep}, 자금 +${funds}.`); render();
 }
 // 주점 단계 정식 승급 (명성 게이트 + 재료·자금 소비)
 function promote() {
@@ -1732,6 +1836,44 @@ function kEffText(def, lv) {
   return (e.v < 0 ? "" : "+") + Math.floor(e.v * 100) + "%";   // 유저 유리: 표시 floor(증가형은 보수적)
 }
 function kCostText(cost) { return Object.entries(cost).map(([n, v]) => `${n} ${v}`).join(", "); }
+function serveAssignOptions() {
+  const cur = state.serveAssign || "";
+  let html = `<option value="">(접객 담당 비움)</option>`;
+  Object.keys(CHARACTERS).forEach(id => {
+    if (!isRecruited(id) || isInjured(id)) return;
+    if (id !== cur && !isCharFree(id)) return;
+    html += `<option value="${id}"${id === cur ? " selected" : ""}>${CHARACTERS[id].name}${id === "마라" ? " (약장수·만족+3/h)" : ""}</option>`;
+  });
+  return html;
+}
+function renderCustomers() {
+  const box = document.getElementById("ui-customers"); if (!box) return;
+  const s = Math.round(state.satisfaction), base = Math.round(satisfactionBaseline()), mult = satisfactionRepMult();
+  const color = s >= 76 ? "#7fb069" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "#d96b6b";
+  let html = `<div class="row" style="margin:0 0 2px"><span class="label">😊 만족도</span><span class="value"><span class="sat-num">${s}</span>/100 <span style="color:#80766a;font-weight:normal;font-size:12px">(접객 명성 ×<span class="sat-mult">${mult.toFixed(2)}</span>)</span></span></div>`;
+  html += `<div class="bar-bg"><div class="bar-fill sat-bar" style="width:${s}%;background:${color}"></div></div>`;
+  html += `<div class="gather-sub" style="margin-top:3px">기준선 ${base} · 시간당 ±${SAT.drift_per_hour} 수렴${anyDrinkSoldOut() ? ` · <span style="color:#d96b6b">술 품절 -${SAT.dec.품절}/h</span>` : ""}</div>`;
+  html += `<div class="gather-sub" style="margin:8px 0 4px">🤝 접객 담당 <span style="color:#80766a">(만족도 +/h · 진상 자동 대응)</span></div>`;
+  html += `<select class="serve-assign">${serveAssignOptions()}</select>`;
+  html += `<div class="gather-sub" style="margin:8px 0 4px">🍻 손님 종류 접대 (30명 → 단골)</div>`;
+  html += `<div class="grid3">` + ["용병", "상인", "마법사"].map(t => { const n = state.customerServes[t] || 0, done = cardOwned(CUSTOMERS.card_link[t]); return `<div class="cell"><span class="k">${t}</span><span class="v" style="font-weight:normal;font-size:11px;color:${done ? "#7fb069" : "#80766a"}">${Math.min(n, 30)}/30${done ? " ✅" : ""}</span></div>`; }).join("") + `</div>`;
+  if (state.nuisance.active) {
+    const sm = serveMerc();
+    html += `<div class="slot-row active" style="margin-top:8px"><div class="slot-head"><span class="slot-name">😠 진상 손님</span><span class="slot-status" style="font-size:11px">${sm ? `${CHARACTERS[sm].name} 자동 대응 중` : `방치 시 -${CUSTOMERS.nuisance.afk_penalty} (${fmtDur(state.nuisance.timerSec)})`}</span></div>`;
+    if (!sm) html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><button class="nui" data-k="정중">정중 응대</button><button class="nui" data-k="술">술 1병(+5)</button><button class="nui" data-k="진호출">진 호출</button></div>`;
+    html += `</div>`;
+  }
+  box.innerHTML = html;
+  const sa = box.querySelector(".serve-assign"); if (sa) sa.onchange = () => assignServe(sa.value);
+  box.querySelectorAll(".nui").forEach(b => b.onclick = () => nuisanceRespond(b.dataset.k));
+}
+function updateCustomersLive() {
+  const box = document.getElementById("ui-customers"); if (!box) return;
+  const s = Math.round(state.satisfaction);
+  const num = box.querySelector(".sat-num"); if (num) num.textContent = s;
+  const bar = box.querySelector(".sat-bar"); if (bar) { bar.style.width = s + "%"; bar.style.background = s >= 76 ? "#7fb069" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "#d96b6b"; }
+  const m = box.querySelector(".sat-mult"); if (m) m.textContent = satisfactionRepMult().toFixed(2);
+}
 function renderEvents() {
   const box = document.getElementById("ui-events"); if (!box) return;
   const ev = state.events, w = curWeather();
@@ -2134,14 +2276,15 @@ function renderLive() {
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
-  // 발효·채집·버프·던전 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
-  updateBrewLive(); updateBuffLive(); updateDungeonLive();
+  // 발효·채집·버프·던전·손님 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
+  updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive();
 }
 
 function render() {
   needsFullRender = false;
   renderProgress();
   renderEvents();
+  renderCustomers();
   renderOrders();
   renderKingdom();
   renderCombat();
@@ -2257,6 +2400,14 @@ document.getElementById("btn-weather").onclick = () => {
   state.events.weather = next.name; state.events.weatherTimerSec = EVENTS.weather.interval_h * 3600 / TIME_SCALE;
   startSpecial("대목"); startSpecial("음유시인");
   log(`[개발] 날씨 → ${next.name} · 대목·음유시인 발동.`);
+  render();
+};
+// 개발용: 손님 종류 30명 접대 + 진상 발생(만족도/카드/진상 테스트)
+document.getElementById("btn-cust").onclick = () => {
+  ["용병", "상인", "마법사"].forEach(t => { state.customerServes[t] = 30; });
+  checkCardPetUnlocks();
+  state.nuisance.active = true; state.nuisance.timerSec = CUSTOMERS.nuisance.grace_h * 3600 / TIME_SCALE;
+  log("[개발] 용병·상인·마법사 30명 접대 + 진상 발생.");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)

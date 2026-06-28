@@ -12,11 +12,14 @@ const CARDS = {
   grade_dupes: { 실버: 4, 골드: 10, 플래티넘: 20 },  // dupes 임계값(보유1=일반)
   pity: { per_miss: 0.1, cap_mult: 5.0 },           // core_formulas.pity_rare_drop
   list: [
-    // 손님 단골(구현 3)
-    { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction", v: 0.20 } }, // B확정: 영구 만족 보너스 합(접객 무용담+환대 술통) ≥ +20%, 일시 버프 제외
+    // 손님 단골(구현 8)
+    { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction_gauge", v: 75 } }, // t27: 만족도 게이지 75 도달(보너스합 우회 폐지·원안 복귀)
     { id: "귀족 단골", kind: "손님", effect: "고급 의뢰 +1",  g: null, v: 0, gate: { type: "tavernStage", v: 5 } },
     { id: "모험가 단골", kind: "손님", effect: "원정 발견 +5%", g: null, v: 0, gate: { type: "dungeon_boss" } }, // 던전 보스 클리어로 획득(폴링 대상 아님)
     { id: "음유시인 단골", kind: "손님", effect: "명성 획득 +5%", g: "rep_gain", v: 0.05, gate: { type: "음유시인_이벤트" } }, // 음유시인 특별 이벤트로 획득
+    { id: "용병 단골",   kind: "손님", effect: "검술 XP +3%",  g: "xp_전투", v: 0.03, gate: { type: "customer_type", customer: "용병" } },   // 용병 손님 30명 접대
+    { id: "상인 단골",   kind: "손님", effect: "자금 획득 +4%", g: "funds_gain", v: 0.04, gate: { type: "customer_type", customer: "상인" } }, // 상인 손님 30명 접대
+    { id: "마법사 단골", kind: "손님", effect: "마법 XP +4%",  g: "xp_전투", v: 0.04, gate: { type: "customer_type", customer: "마법사" } }, // 마법사 손님 30명 접대
     { id: "마왕 단골", kind: "손님", effect: "전 매출 +5%",   g: "funds_gain", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     // 적 카드(구현 7) — raid 티어 격퇴 시 base_rate(피티) 드롭
     { id: "좀도둑 카드",   kind: "적", effect: "함정 피해 +3%",  g: null, v: 0,    gate: { type: "raidTier", tier: 1, base_rate: 0.25 } },
@@ -35,8 +38,8 @@ const CARDS = {
     { name: "영웅의 증명", cards: ["용병깡패 카드", "자칭영주 카드", "마왕군 카드", "모험가 단골"], g: null, v: 0 },
     { name: "왕국의 위엄", cards: ["마왕 단골", "마왕군 카드", "귀족 단골", "음유시인 단골"], g: "xp_all", v: 0.05 }
   ],
-  // deferred 카드(획득 불가, 도감 슬롯 유지) — 개수 15 맞춤. 모험가=던전·음유시인=이벤트로 해제
-  deferred: ["용병 단골", "상인 단골", "마법사 단골"]
+  // deferred 카드(획득 불가, 도감 슬롯 유지) — 개수 15 맞춤. 손님 종류 시스템(t27)으로 전부 해제
+  deferred: []
 };
 
 const PETS = {
@@ -64,9 +67,10 @@ const PETS = {
     { id: "끈기 거북",   specialty: "범용", effect: "오프라인 효율 +5%", g: "offline", v: 5, gate: { type: "unmapped" } }, // '오프라인 누적' 임계값 미정
     { id: "황금 꿀벌",   specialty: "양조", effect: "술 재료 +20%",     g: null, v: 0,            gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } },
     { id: "영주의 여우", specialty: "범용", effect: "명성·자금 +15%",   g: "funds_gain", v: 0.15, gate: { type: "unmapped" } }, // '엔딩 도달' 미구현
-    { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } }
+    { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } },
+    { id: "접객 고양이", specialty: "접객", effect: "손님 만족 +8%",   g: null, v: 0, gate: { type: "satisfaction_gauge", v: 90 } } // t27: 만족도 게이지 90 도달. '손님 만족 +8%'는 게이지 훅 미정 → g:null(도감 표시, 리포트)
   ],
-  deferred: ["제작 드래곤", "요리 너구리", "접객 고양이", "경영 부엉이", "홍보 앵무", "원정 군마", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
+  deferred: ["제작 드래곤", "요리 너구리", "경영 부엉이", "홍보 앵무", "원정 군마", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
 };
 
 /* ── 도감 완성도 마일스톤 (SSOT completion_log.completion_basis / milestone_rule) ──
