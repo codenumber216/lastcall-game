@@ -562,10 +562,12 @@ function freshDungeon() {
     run: null                                               // 진행 중 원정 { dungeon, totalSec, remainingSec } | null
   };
 }
-// 평화 구간(6~12게임시간)을 현재 배속 실초로
+// 평화 구간(6~12게임시간)을 현재 배속 실초로. 대목 발동 중엔 습격 빈도↑(peace_interval ÷1.5).
 function peaceIntervalSec() {
   const h = COMBAT.peace_interval_h.min + Math.random() * (COMBAT.peace_interval_h.max - COMBAT.peace_interval_h.min);
-  return h * 3600 / TIME_SCALE;
+  let div = 1;
+  try { if (state.events && specialActive("대목")) div = EVENTS.special["대목"].raid_interval_div; } catch (e) { /* 초기 freshState() 시 state TDZ — div 1 */ }
+  return h * 3600 / TIME_SCALE / div;
 }
 let state = freshState();
 

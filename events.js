@@ -25,7 +25,7 @@ const EVENTS = {
     }
   },
   special: {
-    "대목":     { frequency_days: 30,  duration_days: 3, serveRepMult: 3 },                          // 접객 명성 ×3 (부작용 진상·습격 = SSOT 수치 없음 → 미적용)
+    "대목":     { frequency_days: 30,  duration_days: 3, serveRepMult: 3, raid_interval_div: 1.5 },   // 접객 명성 ×3 · 부작용: 습격 빈도↑(peace_interval ÷1.5). 진상은 시스템 미구현
     "마왕의외상": { frequency_days: 360, duration_days: 7, reward_funds: 5000, title: "외상 추격자" },  // 완료 시 자금+5000+칭호
     "음유시인":  { daily_prob: 0.03, duration_days: 1, repMult: 2, card: "음유시인 단골", card_rate: 0.5 } // 명성 ×2(일시) + 카드 0.5
   }
