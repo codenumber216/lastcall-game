@@ -130,6 +130,12 @@
   <div id="ui-progress"></div>
 </div>
 
+<!-- ─────────── 이벤트 & 날씨 ─────────── -->
+<div class="card" id="card-events">
+  <div class="label">🌦️ 이벤트 & 날씨 <span style="font-weight:normal;font-size:12px">(12시간마다 날씨 · 일일/특별 이벤트)</span></div>
+  <div id="ui-events"></div>
+</div>
+
 <!-- ─────────── 왕국 성장 (무용담·술통 기부) ─────────── -->
 <div class="card" id="card-kingdom">
   <div class="label">🏛️ 왕국 성장 <span style="font-weight:normal;font-size:12px">(자원 기부 → 영구 보너스 · Lv 1~20)</span></div>
@@ -224,6 +230,7 @@
   <button id="btn-dex">[개발] 도감 테스트 획득</button>
   <button id="btn-dgkey">[개발] 던전 열쇠+마왕격퇴</button>
   <button id="btn-eqsample">[개발] 장비 샘플 지급</button>
+  <button id="btn-weather">[개발] 날씨 전환+특별</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -245,6 +252,7 @@
 <script src="cards_pets.js"></script>
 <script src="dungeon.js"></script>
 <script src="equipment.js"></script>
+<script src="events.js"></script>
 
 <script>
 /* ============================================================================
@@ -311,6 +319,7 @@ function freshState() {
     domeMaxPct: 0, // 도감 완성도 최고 도달치(0~1) — 마일스톤 보상 영구 유지용
     dungeon: freshDungeon(),  // 던전 원정(키·파티·누적 클리어·진행 중 런)
     equipment: freshEquipment(),  // 장비(보유 도감 + 용병별 4슬롯 장착)
+    events: freshEvents(),    // 이벤트 & 날씨(날씨·일일·특별 이벤트)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -532,6 +541,17 @@ function freshCombat() {
 }
 // 장비 초기 상태: owned{장비id:보유수}, equipped{용병id:{무기,갑옷,투구,장신구}}
 function freshEquipment() { return { owned: {}, equipped: {} }; }
+// 이벤트 & 날씨 초기 상태
+function freshEvents() {
+  return {
+    weather: "맑음",
+    weatherTimerSec: EVENTS.weather.interval_h * 3600 / TIME_SCALE,   // 다음 날씨 재추첨까지
+    dayTimerSec: EVENTS.daily.interval_h * 3600 / TIME_SCALE,         // 다음 일일 경계까지
+    lastDailyDay: 0,                                                  // 누적 게임일(특별 이벤트 주기 판정)
+    special: { "대목": { remainDays: 0 }, "마왕의외상": { remainDays: 0 }, "음유시인": { remainDays: 0 } },
+    titles: {}                                                        // 획득 칭호
+  };
+}
 // 던전 원정 초기 상태
 function freshDungeon() {
   return {
@@ -787,7 +807,7 @@ function tickCombat(dtSec) {
   state.combat.raidTimerSec -= dtSec;
   let guard = 0;
   while (state.combat.raidTimerSec <= 0 && guard++ < 200) {
-    resolveRaid();
+    if (Math.random() < weatherRaidMult()) resolveRaid();   // 폭풍: 습격 확률 ×0.30 (그 외 ×1)
     state.combat.raidTimerSec += peaceIntervalSec();
     if (state.combat.cooldownSec > 0) break;     // 이번 습격이 패배라 유예 걸리면 중단
   }
@@ -867,6 +887,7 @@ function giveDungeonMaterials(d, amount, typeCount) {
 function enterDungeon(name) {
   const d = DUNGEON_BY_NAME[name]; if (!d) return;
   if (dungeonRunActive()) { log("이미 원정이 진행 중입니다."); render(); return; }
+  if (weatherDungeonBlocked()) { log("⛈️ 폭풍 — 원정을 떠날 수 없습니다(날씨 회복 후 가능)."); render(); return; }
   if (!dungeonUnlocked(d)) { log(`${name}: 마왕(티어6) 격퇴 후 해금됩니다.`); render(); return; }
   const party = state.dungeon.party.filter(id => CHARACTERS[id] && isRecruited(id) && !isInjured(id));
   if (!party.length) { log("파티에 용병을 1명 이상 편성하세요."); render(); return; }
@@ -974,9 +995,68 @@ function equipItem(mercId, slot, itemId) {
 }
 
 
+/* ── 이벤트 & 날씨 엔진 (기존 수치에 변동만 · 해금 없음) ──────────────────────── */
+let settling = false;   // 오프라인 정산 중엔 일일 이벤트 로그 억제(스팸 방지)
+function curWeather() { return EVENTS.weather.distribution.find(w => w.name === state.events.weather) || EVENTS.weather.distribution[0]; }
+function weatherServeRepMult() { return curWeather().serveRep || 1; }     // 손님±% → 접객 명성(doServe)
+function weatherRepMult() { return curWeather().repMult || 1; }           // 명성±% → 전 명성 획득(축제 +50%)
+function weatherHuntMult() { const v = curWeather().huntMult; return v == null ? 1 : v; }  // 사냥 rate(폭풍 0)
+function weatherDungeonBlocked() { return !!curWeather().dungeonBlocked; }                 // 폭풍 원정 불가
+function weatherRaidMult() { const v = curWeather().raidMult; return v == null ? 1 : v; }  // 습격 확률(폭풍 ×0.30)
+function specialActive(k) { return state.events.special[k].remainDays > 0; }
+function daemokServeMult() { return specialActive("대목") ? EVENTS.special["대목"].serveRepMult : 1; }   // 접객 명성 ×3
+function musicRepMult() { return specialActive("음유시인") ? EVENTS.special["음유시인"].repMult : 1; }    // 명성 ×2
+
+function rollWeather() {
+  const r = Math.random(); let acc = 0, pick = EVENTS.weather.distribution[0];
+  for (const w of EVENTS.weather.distribution) { acc += w.prob; if (r <= acc) { pick = w; break; } }
+  if (pick.name !== state.events.weather) { state.events.weather = pick.name; needsFullRender = true; if (!settling) log(`${pick.icon} 날씨가 '${pick.name}'(으)로 바뀌었습니다 — ${pick.desc}`); }
+}
+function rollDailyEvents() {
+  const L = EVENTS.daily.list;
+  state.funds += L["단골방문"].funds;   // prob 1.0
+  if (Math.random() < L["떠돌이상인"].prob && state.funds >= L["떠돌이상인"].cost_funds) {
+    state.funds -= L["떠돌이상인"].cost_funds;
+    const p = L["떠돌이상인"].pool, mat = p[Math.floor(Math.random() * p.length)];
+    state.materials[mat] = Math.min(MAT_CAP, (state.materials[mat] || 0) + L["떠돌이상인"].amount);
+    if (!settling) log(`🧳 떠돌이 상인 — 자금 -${L["떠돌이상인"].cost_funds}, ${mat} +${L["떠돌이상인"].amount}`);
+  }
+  if (Math.random() < L["술배달의뢰"].prob) {
+    let need = L["술배달의뢰"].any_drink, total = Object.values(state.drinks).reduce((a, b) => a + b, 0);
+    if (total >= need) { for (const id in state.drinks) { if (need <= 0) break; const t = Math.min(need, state.drinks[id]); state.drinks[id] -= t; need -= t; } state.funds += L["술배달의뢰"].funds; if (!settling) log(`🍶 술 배달 의뢰 — 술 ${L["술배달의뢰"].any_drink}병 → 자금 +${L["술배달의뢰"].funds}`); }
+  }
+  if (!settling) log(`🎁 단골 방문 — 자금 +${L["단골방문"].funds}`);
+}
+function startSpecial(k) { state.events.special[k].remainDays = EVENTS.special[k].duration_days; needsFullRender = true; if (!settling) log(`✨ 특별 이벤트: ${k} 시작 (${EVENTS.special[k].duration_days}일간)`); }
+function endSpecial(k) {
+  needsFullRender = true;
+  if (k === "마왕의외상") { const e = EVENTS.special["마왕의외상"]; state.funds += e.reward_funds; state.events.titles[e.title] = true; if (!settling) log(`🏆 마왕의 외상 완료 — 자금 +${e.reward_funds}, 칭호 '${e.title}' 획득`); }
+  else if (!settling) log(`✨ ${k} 종료`);
+}
+function onDayBoundary() {
+  const ev = state.events; ev.lastDailyDay++; const day = ev.lastDailyDay;
+  ["대목", "마왕의외상", "음유시인"].forEach(k => { const s = ev.special[k]; if (s.remainDays > 0) { s.remainDays--; if (s.remainDays === 0) endSpecial(k); } });
+  if (day % EVENTS.special["대목"].frequency_days === 0) startSpecial("대목");
+  if (day % EVENTS.special["마왕의외상"].frequency_days === 0) startSpecial("마왕의외상");
+  if (Math.random() < EVENTS.special["음유시인"].daily_prob) { startSpecial("음유시인"); if (Math.random() < EVENTS.special["음유시인"].card_rate) grantCard(EVENTS.special["음유시인"].card); }
+  rollDailyEvents();
+}
+function tickEvents(dtSec) {
+  const ev = state.events;
+  // 날씨: 12h마다 1회 재추첨(오프라인 큰 dt면 복귀 시 1회만 — 과거 소급 없음)
+  ev.weatherTimerSec -= dtSec;
+  if (ev.weatherTimerSec <= 0) { rollWeather(); ev.weatherTimerSec = EVENTS.weather.interval_h * 3600 / TIME_SCALE; }
+  // 일일 경계: 경과 게임일수만큼 일괄 정산
+  ev.dayTimerSec -= dtSec;
+  let g = 0;
+  while (ev.dayTimerSec <= 0 && g++ < 100000) { ev.dayTimerSec += EVENTS.daily.interval_h * 3600 / TIME_SCALE; onDayBoundary(); }
+}
+
+
 /* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
    버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
 function tick(dtSec) {
+  tickEvents(dtSec);     // 날씨·일일·특별 이벤트(다른 시스템이 이 tick에서 날씨 효과를 읽도록 먼저)
   tickBuffs(dtSec);
   tickGathering(dtSec);
   tickBrewSlots(dtSec);
@@ -1112,9 +1192,10 @@ function tickGathering(dtSec) {
     const yields = GATHERING[actId].yields;
     let units = 0;
     const gm = getterMult();   // 90% 전 획득 x1.15 (재료 획득량에만, 생산속도 캡과 별개)
+    const wm = (actId === "사냥") ? weatherHuntMult() : 1;   // 날씨: 사냥 rate (비 -10%, 폭풍 0)
     for (const mat in yields) {
       if (lv < (yields[mat].unlock_lv || 1)) continue;  // 조달 레벨 < 재료 unlock_lv → 미해금(생산 안 함)
-      const baseAdd = yields[mat].rate_per_h * gameH * mult;
+      const baseAdd = yields[mat].rate_per_h * gameH * mult * wm;
       const next = (state.materials[mat] || 0) + baseAdd * gm;
       state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
       units += baseAdd;   // XP 베이스는 getter 전(획득 XP getter는 addSkillXp에서 별도 적용)
@@ -1325,6 +1406,17 @@ function load() {
     }
   }
 
+  // 이벤트 & 날씨 복원 (구형 세이브엔 없으므로 freshEvents 기본값 유지)
+  if (saved.events && typeof saved.events === "object") {
+    const sv = saved.events;
+    if (EVENTS.weather.distribution.some(w => w.name === sv.weather)) state.events.weather = sv.weather;
+    if (typeof sv.weatherTimerSec === "number") state.events.weatherTimerSec = Math.max(0, sv.weatherTimerSec);
+    if (typeof sv.dayTimerSec === "number") state.events.dayTimerSec = Math.max(0, sv.dayTimerSec);
+    if (typeof sv.lastDailyDay === "number") state.events.lastDailyDay = Math.max(0, Math.floor(sv.lastDailyDay));
+    if (sv.special && typeof sv.special === "object") for (const k in state.events.special) { const r = sv.special[k] && sv.special[k].remainDays; if (typeof r === "number") state.events.special[k].remainDays = Math.max(0, Math.floor(r)); }
+    if (sv.titles && typeof sv.titles === "object") for (const t in sv.titles) if (sv.titles[t]) state.events.titles[t] = true;
+  }
+
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
     state.onboarding = { step: saved.onboarding.step || 1, done: !!saved.onboarding.done };
@@ -1353,9 +1445,13 @@ function load() {
   // 정산 전후 비교(전체 술 병수 / 전체 재료량)
   const beerBefore = Object.values(state.drinks).reduce((a, b) => a + b, 0);
   const matBefore = ALL_MATERIALS.reduce((s, m) => s + (state.materials[m] || 0), 0);
+  const daysBefore = state.events.lastDailyDay;
+  settling = true;          // 오프라인 정산: 일일 이벤트 로그 억제(요약만)
   tick(effectiveSec);
+  settling = false;
   const made = Object.values(state.drinks).reduce((a, b) => a + b, 0) - beerBefore;
   const gathered = Math.floor(ALL_MATERIALS.reduce((s, m) => s + (state.materials[m] || 0), 0) - matBefore);
+  const daysElapsed = state.events.lastDailyDay - daysBefore;
 
   const mins = Math.floor(realSec / 60), effPct = Math.round(efficiency * 100);
   // 실제로 생산이 인정되는 상한 시간 = 생산 정지 시점(24h)과 하드캡(36h) 중 먼저 걸리는 쪽.
@@ -1364,7 +1460,8 @@ function load() {
   const note = realSec > prodCapH * 3600 ? ` (${prodCapH}시간 이후는 정지)` : "";
   const brewPart = made > 0 ? ` · 술 ${made}병 양조` : "";
   const gatherPart = gathered > 0 ? ` · 재료 ${gathered}개 채집` : "";
-  log(`다녀오셨군요! ${mins}분 자리비움 · 효율 ${effPct}% 적용${brewPart}${gatherPart}${note}.`);
+  const dayPart = daysElapsed > 0 ? ` · ${daysElapsed}게임일 이벤트 정산` : "";
+  log(`다녀오셨군요! ${mins}분 자리비움 · 효율 ${effPct}% 적용${brewPart}${gatherPart}${dayPart}${note}.`);
 }
 
 
@@ -1578,11 +1675,11 @@ function renderSkills() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain")) * milestoneRepMult() * getterMult(); }   // 75% 명성 x1.5 × 90% 전 획득 x1.15 (곱 누적)
+function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult(); }   // 75% x1.5 × 90% x1.15 × 축제 x1.5 × 음유시인 x2 (곱 누적)
 function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain")) * getterMult(); }   // 90% 전 획득 x1.15
 function doServe() {
   const a = REP_ACTIONS.serve, sat = 1 + kingdomBonus("satisfaction") + cardPetAccountBonus("satisfaction");
-  const rep = Math.round(a.rep * a.per * sat * repGainMult());
+  const rep = Math.round(a.rep * a.per * sat * repGainMult() * weatherServeRepMult() * daemokServeMult());   // 손님±%(날씨) · 대목 ×3 = 접객 명성에만 추가
   const funds = Math.round(a.funds * sat * fundsGainMult());
   state.reputation += rep; state.funds += funds;
   log(`🍻 접객(손님 ${a.per}명) — 명성 +${rep}, 자금 +${funds}.`); render();
@@ -1633,6 +1730,17 @@ function kEffText(def, lv) {
   return (e.v < 0 ? "" : "+") + Math.floor(e.v * 100) + "%";   // 유저 유리: 표시 floor(증가형은 보수적)
 }
 function kCostText(cost) { return Object.entries(cost).map(([n, v]) => `${n} ${v}`).join(", "); }
+function renderEvents() {
+  const box = document.getElementById("ui-events"); if (!box) return;
+  const ev = state.events, w = curWeather();
+  let html = `<div class="row" style="margin:0"><span class="label">${w.icon} ${ev.weather}</span><span class="value" style="font-size:12px;font-weight:normal">${w.desc} · 다음 ${fmtDur(ev.weatherTimerSec)}</span></div>`;
+  const act = ["대목", "마왕의외상", "음유시인"].filter(k => specialActive(k));
+  if (act.length) html += `<div class="gather-sub" style="color:#c9a86a;margin-top:5px">` + act.map(k => `✨ <b>${k}</b> (${ev.special[k].remainDays}일 남음)`).join(" · ") + `</div>`;
+  html += `<div class="gather-sub" style="margin-top:5px;color:#80766a">게임 ${ev.lastDailyDay}일차 · 다음 일일 이벤트 ${fmtDur(ev.dayTimerSec)}</div>`;
+  const titles = Object.keys(ev.titles);
+  if (titles.length) html += `<div class="gather-sub" style="color:#7fb069;margin-top:3px">🏅 칭호: ${titles.join(", ")}</div>`;
+  box.innerHTML = html;
+}
 function renderKingdom() {
   const box = document.getElementById("ui-kingdom"); if (!box) return;
   const row = (kindArr, id, def) => {
@@ -1800,6 +1908,7 @@ function renderDungeon() {
     const clears = dg.clears[d.name] || 0, cost = dungeonKeyCost(d), unlocked = dungeonUnlocked(d);
     let btn;
     if (!unlocked) btn = `<button disabled>🔒 마왕 격퇴 후</button>`;
+    else if (weatherDungeonBlocked()) btn = `<button disabled>⛈️ 폭풍 — 원정 불가</button>`;
     else if (run) btn = `<button disabled>원정 중</button>`;
     else if (!dg.party.length) btn = `<button disabled>파티 편성 필요</button>`;
     else if (ppow < d.rec_power) btn = `<button disabled>🔒 전투력 ${ppow}/${d.rec_power}</button>`;
@@ -2022,7 +2131,7 @@ function renderLive() {
   renderOnboarding();                              // 게이트 평가 + 스텝 바뀔 때만 오버레이 재작성
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
-  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom();
+  renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
   // 발효·채집·버프·던전 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
   updateBrewLive(); updateBuffLive(); updateDungeonLive();
 }
@@ -2030,6 +2139,7 @@ function renderLive() {
 function render() {
   needsFullRender = false;
   renderProgress();
+  renderEvents();
   renderOrders();
   renderKingdom();
   renderCombat();
@@ -2136,6 +2246,15 @@ document.getElementById("btn-dgkey").onclick = () => {
 document.getElementById("btn-eqsample").onclick = () => {
   ["마왕성 세트 무기", "마왕성 세트 갑옷", "마왕성 세트 투구", "마왕성 세트 장신구", "전설 검", "전설 갑옷", "전설 투구", "거미줄 세트 무기", "거미줄 세트 갑옷"].forEach(grantEquipment);
   log("[개발] 장비 샘플 지급(마왕성 세트 4부위 + 전설 장비 등).");
+  render();
+};
+// 개발용: 날씨를 다음 종류로 전환 + 대목·음유시인 발동(이벤트 효과 테스트)
+document.getElementById("btn-weather").onclick = () => {
+  const dist = EVENTS.weather.distribution, i = dist.findIndex(w => w.name === state.events.weather);
+  const next = dist[(i + 1) % dist.length];
+  state.events.weather = next.name; state.events.weatherTimerSec = EVENTS.weather.interval_h * 3600 / TIME_SCALE;
+  startSpecial("대목"); startSpecial("음유시인");
+  log(`[개발] 날씨 → ${next.name} · 대목·음유시인 발동.`);
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)
