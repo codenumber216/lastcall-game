@@ -21,7 +21,6 @@ const SMITHING = {
   },
   qty_mult_by_grade: { 일반: 1, 고급: 2, 희귀: 3.5, 영웅: 5, 전설: 7 },
   legendary_extra: { 거인고기: 2 },   // 전설 등급 제작 시 추가
-  // 품질(등급업 확률) = 장인의 술통(SSOT, kingdomBonus "quality") + 망치꾼 클래스 + 제작 드래곤 펫 (합산)
-  // ※ 망치꾼·드래곤 수치는 SSOT 미정 → 가정(기획 리포트). 장인 술통은 SSOT 값.
-  quality: { 망치꾼_class_bonus: 0.10, dragon_pet_bonus: 0.15 }
+  // 품질(등급업 확률) = 장인의 술통(SSOT Lv값, kingdomBonus "quality") + 망치꾼 클래스 + 제작 드래곤 펫 (합산)
+  quality: { 망치꾼_class_bonus: 0.15, dragon_pet_bonus: 0.10 }   // 확정(2026-06-29)
 };
