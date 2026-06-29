@@ -214,6 +214,12 @@
   <div id="ui-smithing"></div>
 </div>
 
+<!-- ─────────── 원정 (파견) ─────────── -->
+<div class="card" id="card-expedition">
+  <div class="label">🧭 원정 / 파견 <span style="font-weight:normal;font-size:12px">(용병 파견 → 시간 경과 → 자금·유물 · 전투 없음)</span></div>
+  <div id="ui-expedition"></div>
+</div>
+
 <!-- ─────────── 스킬 (용병별 양조·조달 레벨) ─────────── -->
 <div class="card">
   <div class="label">📈 스킬 <span style="font-weight:normal;font-size:12px">(활동하면 XP 적립·레벨업 → 속도·산출 ↑)</span></div>
@@ -252,6 +258,7 @@
   <button id="btn-cust">[개발] 손님/진상 테스트</button>
   <button id="btn-cook">[개발] 요리 Lv99+안주</button>
   <button id="btn-smith">[개발] 대장일 Lv99+금속</button>
+  <button id="btn-exp">[개발] 원정 Lv99+30회</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -277,6 +284,7 @@
 <script src="customers.js"></script>
 <script src="cooking.js"></script>
 <script src="smithing.js"></script>
+<script src="expedition.js"></script>
 
 <script>
 /* ============================================================================
@@ -292,6 +300,7 @@ const ALL_MATERIALS = (() => {
   const add = m => { if (!list.includes(m)) list.push(m); };
   for (const id in DRINKS)    for (const mat in DRINKS[id].mat)       add(mat);
   for (const id in GATHERING) for (const mat in GATHERING[id].yields) add(mat);
+  add("유물");   // 원정(expedition) 산출물 — 채집 소스 없음, 원정 보상으로만 획득
   return list;
 })();
 
@@ -320,6 +329,7 @@ function slotCount(stage = state.tavernStage) {
 }
 function freshState() {
   const materials = {}; ALL_MATERIALS.forEach(m => materials[m] = START_MATERIAL);
+  materials["유물"] = 0;   // 유물은 원정으로만 — 시작 0
   const drinks = {};    Object.keys(DRINKS).forEach(id => drinks[id] = 0);
   const gatherAssign = {}; Object.keys(GATHERING).forEach(id => gatherAssign[id] = null);
   const firstDrink = Object.keys(DRINKS)[0];
@@ -353,6 +363,7 @@ function freshState() {
     snackSlots: [null, null], // 비치 슬롯(2) — 비치 안주 효과 상시 적용
     cookSlot: { charId: null, snackId: COOKING.snacks[0].name, progressSec: 0 },  // 요리 슬롯(안주 제조)
     smithing: { charId: null, part: SMITHING.parts[0], grade: "일반", progressSec: 0 },  // 대장일 슬롯(장비 제작)
+    expedition: { charId: null, dispatch: EXPEDITION.dispatches[0].name, remainingSec: 0, totalSec: 0, active: false, completedCount: 0 },  // 원정 파견
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -397,8 +408,7 @@ function isWangStatueUnlocked() {
 function kCostResolve(name) {
   if (name === "술") return { kind: "drinks_any" };
   if (name === "전설술") return { kind: "drinks_series", series: "전설" };
-  if (name === "유물") return { kind: "none" };
-  const key = KINGDOM.aliases[name] || name;
+  const key = KINGDOM.aliases[name] || name;   // 유물=원정 산출물(실재 재료) → material로 처리
   if (key === "자금") return { kind: "funds" };
   return { kind: "material", key };
 }
@@ -507,6 +517,7 @@ function petGateMet(g) {
   if (g.type === "clears") return (state.combat.clears || 0) >= g.n;
   if (g.type === "dual") return maxSkillLv(g.a.skill) >= g.a.lv && maxSkillLv(g.b.skill) >= g.b.lv;
   if (g.type === "satisfaction_gauge") return state.satisfaction >= g.v;   // t27: 접객 고양이 만족도 90
+  if (g.type === "expedition_count") return (state.expedition.completedCount || 0) >= g.n;   // t30: 원정 군마 30회
   return false; // unmapped / raidTier는 자동획득 보류·격퇴 시 처리
 }
 // 조건형(손님 카드·스킬/격퇴/이중 펫) 폴링: tick마다 호출(이미 보유는 무시).
@@ -556,7 +567,7 @@ function freshSkills() {
   const s = {};
   for (const id in CHARACTERS) {
     const c = CHARACTERS[id];
-    s[id] = { 양조: { lv: c.brewLevel, xp: 0 }, 조달: { lv: c.gatherLevel, xp: 0 }, 전투: { lv: c.combatLevel || 1, xp: 0 }, 요리: { lv: 1, xp: 0 }, 대장일: { lv: 1, xp: 0 } };
+    s[id] = { 양조: { lv: c.brewLevel, xp: 0 }, 조달: { lv: c.gatherLevel, xp: 0 }, 전투: { lv: c.combatLevel || 1, xp: 0 }, 요리: { lv: 1, xp: 0 }, 대장일: { lv: 1, xp: 0 }, 원정: { lv: 1, xp: 0 } };
   }
   return s;
 }
@@ -616,6 +627,7 @@ function assignedCharIds() {
   if (state.serveAssign) set.add(state.serveAssign);   // 접객 담당 점유
   if (state.cookSlot && state.cookSlot.charId) set.add(state.cookSlot.charId);   // 요리 담당 점유
   if (state.smithing && state.smithing.charId) set.add(state.smithing.charId);   // 대장일 담당 점유
+  if (state.expedition && state.expedition.active && state.expedition.charId) set.add(state.expedition.charId);   // 원정 파견 중 점유
   return set;
 }
 function isCharFree(id) { return !assignedCharIds().has(id); }
@@ -1316,6 +1328,61 @@ function setSmithPart(part) { if (SMITHING.parts.indexOf(part) >= 0) { state.smi
 function setSmithGrade(grade) { if (SMITHING.grades.indexOf(grade) >= 0) { state.smithing.grade = grade; state.smithing.progressSec = 0; render(); } }
 
 
+/* ── 원정(파견) 엔진 (t30) ────────────────────────────────────────────────── */
+function expSpeedBonus(charId) { return Math.min(EXPEDITION.speed_cap, (skillLv(charId, "원정") - 1) * EXPEDITION.speed_per_level); }
+function garmaTimeMult() { return petEquippedMerc(EXPEDITION.garma_pet) ? (1 - EXPEDITION.garma_time_reduction) : 1; }   // 원정 군마 -20%
+function expeditionRewardMult() { return 1 + kingdomBonus("discovery"); }   // 원정 무용담·모험 술통(보상량↑)
+function expDispatchUnlocked(d) { return skillLv(state.expedition.charId, "원정") >= d.reqLv; }
+function expDuration(d) { return (d.duration_h * 3600 / TIME_SCALE) / (1 + expSpeedBonus(state.expedition.charId)) * garmaTimeMult(); }
+function startExpedition() {
+  const e = state.expedition, d = DISPATCH_BY_NAME[e.dispatch];
+  if (!d) return;
+  if (e.active) { log("이미 원정이 진행 중입니다."); render(); return; }
+  if (!e.charId || !CHARACTERS[e.charId] || !isRecruited(e.charId)) { log("파견할 용병을 배치하세요."); render(); return; }
+  if (isInjured(e.charId)) { log(`${CHARACTERS[e.charId].name}은(는) 부상 중입니다.`); render(); return; }
+  if (skillLv(e.charId, "원정") < d.reqLv) { log(`${d.name}: 원정 Lv${d.reqLv} 필요 (현재 ${skillLv(e.charId, "원정")}).`); render(); return; }
+  if (assignedCharIds().has(e.charId)) { log(`${CHARACTERS[e.charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  // 파견 시작: 기존 배치 해제(1명=1작업)
+  state.brewSlots.forEach(s => { if (s.charId === e.charId) s.charId = null; });
+  for (const act in state.gatherAssign) if (state.gatherAssign[act] === e.charId) state.gatherAssign[act] = null;
+  if (state.cookSlot.charId === e.charId) state.cookSlot.charId = null;
+  if (state.smithing.charId === e.charId) state.smithing.charId = null;
+  if (state.serveAssign === e.charId) state.serveAssign = null;
+  e.totalSec = expDuration(d); e.remainingSec = e.totalSec; e.active = true;
+  log(`🧭 ${CHARACTERS[e.charId].name} → '${d.name}' 원정 출발 (${fmtDur(e.remainingSec)}).`);
+  needsFullRender = true; render();
+}
+function resolveExpedition() {
+  const e = state.expedition, d = DISPATCH_BY_NAME[e.dispatch];
+  if (!d) { e.active = false; return; }
+  const mult = expeditionRewardMult();
+  let txt = "";
+  const funds = Math.round((d.reward.funds || 0) * mult); state.funds += funds; txt += `자금 +${funds}`;
+  if (d.reward.유물) { const a = Math.round(d.reward.유물 * mult); state.materials["유물"] = (state.materials["유물"] || 0) + a; txt += `·유물 +${a}`; }
+  if (d.reward.legendary_mat) { const lm = d.reward.legendary_mat, m = lm.pool[Math.floor(Math.random() * lm.pool.length)]; state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + lm.amount); txt += `·${m} +${lm.amount}`; }
+  if (d.reward.story) txt += `·📜 ${d.reward.story}`;
+  addSkillXp(e.charId, "원정", d.xp);
+  e.completedCount = (e.completedCount || 0) + 1;
+  e.active = false; e.remainingSec = 0;
+  log(`🧭 원정 '${d.name}' 복귀 (${e.completedCount}회) — ${txt}.`);
+  needsFullRender = true;
+}
+function tickExpedition(dtSec) {
+  const e = state.expedition; if (!e.active) return;
+  e.remainingSec -= dtSec;
+  if (e.remainingSec <= 0) resolveExpedition();
+}
+function assignExp(charId) {
+  if (state.expedition.active) { log("원정 중에는 용병을 바꿀 수 없습니다."); render(); return; }
+  if (charId && (!CHARACTERS[charId] || !isRecruited(charId))) { log("아직 영입되지 않은 용병입니다."); render(); return; }
+  if (charId && isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중입니다.`); render(); return; }
+  if (charId && assignedCharIds().has(charId)) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  state.expedition.charId = charId && CHARACTERS[charId] ? charId : null;
+  render();
+}
+function setExpDispatch(name) { if (DISPATCH_BY_NAME[name]) { state.expedition.dispatch = name; render(); } }
+
+
 /* ── ④ 핵심 엔진: tick() ──────────────────────────────────────────────────
    버프 만료 + 채집 + 발효 + 전투를 같은 dtSec로 처리 → 실시간·오프라인·효율 동일 적용. */
 function tick(dtSec) {
@@ -1328,6 +1395,7 @@ function tick(dtSec) {
   tickDungeon(dtSec);      // 던전 키 충전 + 진행 중 원정 정산
   tickCook(dtSec);         // 안주 제조(요리 슬롯)
   tickSmith(dtSec);        // 장비 제작(대장일 슬롯)
+  tickExpedition(dtSec);   // 원정 파견 복귀 정산
   tickCustomers(dtSec);    // 만족도 게이지 수렴 + 진상 처리 (폴링 전에 게이지 갱신)
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
 }
@@ -1591,7 +1659,7 @@ function load() {
     for (const id in state.skills) {
       const sv = saved.skills[id];
       if (!sv) continue;
-      ["양조", "조달", "전투", "요리", "대장일"].forEach(sk => {
+      ["양조", "조달", "전투", "요리", "대장일", "원정"].forEach(sk => {
         if (sv[sk] && typeof sv[sk].lv === "number") {
           state.skills[id][sk].lv = Math.min(SKILLS.level_max, Math.max(1, sv[sk].lv));
           state.skills[id][sk].xp = sv[sk].xp || 0;
@@ -1703,6 +1771,15 @@ function load() {
     if (SMITHING.parts.indexOf(sd.part) >= 0) state.smithing.part = sd.part;
     if (SMITHING.grades.indexOf(sd.grade) >= 0) state.smithing.grade = sd.grade;
     if (typeof sd.progressSec === "number") state.smithing.progressSec = Math.max(0, sd.progressSec);
+  }
+  if (saved.expedition && typeof saved.expedition === "object") {
+    const ex = saved.expedition;
+    if (ex.charId && CHARACTERS[ex.charId]) state.expedition.charId = ex.charId;
+    if (DISPATCH_BY_NAME[ex.dispatch]) state.expedition.dispatch = ex.dispatch;
+    state.expedition.active = !!ex.active;
+    if (typeof ex.remainingSec === "number") state.expedition.remainingSec = Math.max(0, ex.remainingSec);
+    if (typeof ex.totalSec === "number") state.expedition.totalSec = Math.max(0, ex.totalSec);
+    if (typeof ex.completedCount === "number") state.expedition.completedCount = Math.max(0, Math.floor(ex.completedCount));
   }
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
@@ -1951,12 +2028,12 @@ function renderSkills() {
   const available = stageMercSlots(state.tavernStage);
   document.getElementById("ui-skills").innerHTML = Object.keys(CHARACTERS).map((id, idx) => {
     const c = CHARACTERS[id], locked = idx >= available;
-    const bw = state.skills[id].양조, gd = state.skills[id].조달, ct = state.skills[id].전투, ck = state.skills[id].요리, sm = state.skills[id].대장일;
+    const bw = state.skills[id].양조, gd = state.skills[id].조달, ct = state.skills[id].전투, ck = state.skills[id].요리, sm = state.skills[id].대장일, ex = state.skills[id].원정;
     const pct = s => s.lv >= SKILLS.level_max ? 100 : Math.floor((s.xp / SKILLS.xpToNext(s.lv)) * 100);
     return `<div class="slot-row" style="opacity:${locked ? 0.45 : 1}">
       <div class="slot-head"><span class="slot-name">${c.name}${c.brewmaster ? " ⭐" : ""}${locked ? " 🔒" : ""}${isInjured(id) ? " 🤕" : ""}</span>
-        <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill}) · 요리 ${ck.lv} · 대장일 ${sm.lv}</span></div>
-      <div class="gather-sub">양조 ${pct(bw)}% · 조달 ${pct(gd)}% · 전투 ${pct(ct)}% · 요리 ${pct(ck)}% · 대장일 ${pct(sm)}%</div>
+        <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill}) · 요리 ${ck.lv} · 대장일 ${sm.lv} · 원정 ${ex.lv}</span></div>
+      <div class="gather-sub">양조 ${pct(bw)}% · 조달 ${pct(gd)}% · 전투 ${pct(ct)}% · 요리 ${pct(ck)}% · 대장일 ${pct(sm)}% · 원정 ${pct(ex)}%</div>
     </div>`;
   }).join("");
 }
@@ -2016,6 +2093,49 @@ function kEffText(def, lv) {
   return (e.v < 0 ? "" : "+") + Math.floor(e.v * 100) + "%";   // 유저 유리: 표시 floor(증가형은 보수적)
 }
 function kCostText(cost) { return Object.entries(cost).map(([n, v]) => `${n} ${v}`).join(", "); }
+function expCharOptions() {
+  const cur = state.expedition.charId || "";
+  let html = `<option value="">(파견 용병 비움)</option>`;
+  Object.keys(CHARACTERS).forEach(id => { if (!isRecruited(id) || isInjured(id)) return; if (id !== cur && !isCharFree(id)) return; html += `<option value="${id}"${id === cur ? " selected" : ""}>${CHARACTERS[id].name} (원정Lv${skillLv(id, "원정")})</option>`; });
+  return html;
+}
+function expRewardText(d) {
+  const mult = expeditionRewardMult(); let t = `자금 ${Math.round((d.reward.funds || 0) * mult)}`;
+  if (d.reward.유물) t += `·유물 ${Math.round(d.reward.유물 * mult)}`;
+  if (d.reward.legendary_mat) t += `·전설재료 ${d.reward.legendary_mat.amount}`;
+  if (d.reward.story) t += `·📜`;
+  return t;
+}
+function renderExpedition() {
+  const box = document.getElementById("ui-expedition"); if (!box) return;
+  const e = state.expedition, d = DISPATCH_BY_NAME[e.dispatch];
+  let html = "";
+  if (e.active) {
+    const pct = Math.max(0, Math.min(100, (1 - e.remainingSec / e.totalSec) * 100));
+    html += `<div class="slot-row active"><div class="slot-head"><span class="slot-name">🧭 ${e.dispatch} 원정 중</span><span class="slot-status exp-status">${fmtDur(e.remainingSec)} 남음</span></div>
+      <div class="bar-bg"><div class="bar-fill exp-bar" style="width:${pct}%;background:#7a9ab0"></div></div>
+      <div class="gather-sub">파견: ${e.charId && CHARACTERS[e.charId] ? CHARACTERS[e.charId].name : "-"}</div></div>`;
+  } else {
+    const unlocked = e.charId ? skillLv(e.charId, "원정") >= d.reqLv : true;
+    html += `<div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+      <select class="exp-char">${expCharOptions()}</select>
+      <select class="exp-dispatch">${EXPEDITION.dispatches.map(x => `<option value="${x.name}"${x.name === e.dispatch ? " selected" : ""}>${x.name} (Lv${x.reqLv}·${x.duration_h}h)</option>`).join("")}</select></div>`;
+    html += `<div class="gather-sub">보상: ${expRewardText(d)} · 소요 ${fmtDur(expDuration(d))} · ${d.xp} XP</div>`;
+    const can = e.charId && CHARACTERS[e.charId] && unlocked;
+    html += `<div style="margin-top:6px"><button class="exp-go"${can ? "" : " disabled"}>${!e.charId ? "용병 배치 필요" : !unlocked ? `원정 Lv${d.reqLv} 필요` : "파견 출발"}</button></div>`;
+  }
+  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">원정 완료 ${e.completedCount}회 · 유물 ${Math.floor(state.materials["유물"] || 0)}</div>`;
+  box.innerHTML = html;
+  const ec = box.querySelector(".exp-char"); if (ec) ec.onchange = () => assignExp(ec.value);
+  const ed = box.querySelector(".exp-dispatch"); if (ed) ed.onchange = () => setExpDispatch(ed.value);
+  const eg = box.querySelector(".exp-go"); if (eg) eg.onclick = startExpedition;
+}
+function updateExpLive() {
+  const box = document.getElementById("ui-expedition"); if (!box) return;
+  const e = state.expedition; if (!e.active) return;
+  const bar = box.querySelector(".exp-bar"); if (bar) bar.style.width = Math.max(0, Math.min(100, (1 - e.remainingSec / e.totalSec) * 100)) + "%";
+  const st = box.querySelector(".exp-status"); if (st) st.textContent = fmtDur(e.remainingSec) + " 남음";
+}
 function smithCharOptions() {
   const cur = state.smithing.charId || "";
   let html = `<option value="">(대장일 담당 비움)</option>`;
@@ -2554,7 +2674,7 @@ function renderLive() {
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
   // 발효·채집·버프·던전·손님 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
-  updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive(); updateCookingLive(); updateSmithLive();
+  updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive(); updateCookingLive(); updateSmithLive(); updateExpLive();
 }
 
 function render() {
@@ -2574,6 +2694,7 @@ function render() {
   renderBrewSlots();
   renderCooking();
   renderSmithing();
+  renderExpedition();
   renderSkills();
   renderDrinkStock();
   renderBuffs();
@@ -2703,6 +2824,15 @@ document.getElementById("btn-smith").onclick = () => {
   ["광석", "목재", "나무껍질", "마석가루", "거인고기", "슬라임정수", "전설홉"].forEach(m => state.materials[m] = (state.materials[m] || 0) + 500);
   checkCardPetUnlocks();
   log("[개발] 전 용병 대장일 Lv99 + 제작 재료 500씩.");
+  render();
+};
+// 개발용: 전 용병 원정 Lv99 + 원정 30회 + 유물 지급(원정·모험술통·군마 테스트)
+document.getElementById("btn-exp").onclick = () => {
+  for (const id in state.skills) state.skills[id].원정.lv = 99;
+  state.expedition.completedCount = 30;
+  state.materials["유물"] = (state.materials["유물"] || 0) + 300;
+  checkCardPetUnlocks();
+  log("[개발] 전 용병 원정 Lv99 + 원정 30회 + 유물 300.");
   render();
 };
 // 개발용: 초기화 (자동 저장을 먼저 꺼야 reload 직전 재저장으로 초기화가 무효화되지 않음)

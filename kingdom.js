@@ -10,7 +10,7 @@
 const KINGDOM = {
   level_max: 20,
 
-  // 무용담(stamps) — deferred(원정) 제외 16종 (안주=요리·제작=대장일 구현으로 해제)
+  // 무용담(stamps) — 17종 전부 활성 (안주=요리·제작=대장일·원정=원정 시스템 구현으로 해제)
   stamps: {
     "양조": { lv1: "+3%", max: "+30%", cost: { 홉: 50 },  target: "brew_speed" },
     "안주": { lv1: "-3%", max: "-25%", cost: { 고기: 30 }, target: "cook_mat" },   // 요리 효율(안주 재료 -%) · 고기→몬스터고기 alias
@@ -25,15 +25,17 @@ const KINGDOM = {
     "함정": { lv1: "+5%", max: "+40%", cost: { 독버섯: 20 },  target: "combat_atk" },
     "방어": { lv1: "+3%", max: "+25%", cost: { 광석: 50 },   target: "combat_survive" },
     "확장": { lv1: "+5%", max: "+40%", cost: { 목재: 50 },   target: null },
+    "원정": { lv1: "+3%", max: "+25%", cost: { 자금: 150 }, target: "discovery" },   // 원정 발견 +%(보상량↑) — 대장일·요리처럼 시스템 구현으로 해제
     "영업": { lv1: "+30분", max: "+5시간", cost: { 자금: 200 }, target: "offline" },   // "영업(오프라인)"
     "왕국": { lv1: "+5%", max: "+40%", cost: { 자금: 300 },  target: null },
     "전설": { lv1: "x1.1", max: "x2.0", cost: { 전설홉: 3 },  target: "combat_atk" }     // 곱→가산(eff-1), +150% 클립
   },
 
-  // 술통(statues) — deferred(모험·축제) 제외 10종 (장인=대장일 구현으로 해제). 왕의 술통 해금 기준 10종.
+  // 술통(statues) — deferred(축제) 제외 11종 (장인=대장일·모험=원정 구현으로 해제). 왕의 술통 해금 기준 11종.
   statues: {
     "양조의 술통": { lv1: "+3%", max: "+30%", cost: { 술: 500 },     target: "brew_speed" },
     "장인의 술통": { lv1: "+4%", max: "+35%", cost: { 철: 500 },     target: "quality" },   // 제작 품질(등급업 확률) · 철→광석 alias
+    "모험의 술통": { lv1: "+5%", max: "+40%", cost: { 유물: 100 },   target: "discovery" },   // 원정 발견(보상량↑)
     "용맹의 술통": { lv1: "+5%", max: "+40%", cost: { 도적금화: 200 }, target: "combat_atk" },
     "환대의 술통": { lv1: "+5%", max: "+50%", cost: { 자금: 300 },    target: "satisfaction" },
     "번영의 술통": { lv1: "+5%", max: "+45%", cost: { 자금: 500 },    target: "funds_gain" },
