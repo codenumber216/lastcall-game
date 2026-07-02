@@ -2,8 +2,8 @@
    Last Call — 던전 원정 데이터 (index.html에서 <script>로 로드)
    원본(SSOT): lastcall_balance_data.json 의 signature_dungeon / 설계서 t19_dungeon_expedition.md
    ※ 습격 엔진(raid_combat) 재활용 — 층마다 단판 전력 비교. 값은 전부 SSOT.
-   ※ 보류(장비 시스템 t26): 고유 장비 세트·2/4피스·100회 전설변형 = equipment 구현 후 연결.
-     현재는 자금·재료·모험가 단골 카드 보상으로 플레이 성립.
+   ※ 장비(t26) 구현됨 — 보스 세트/일반 드롭 활성, 50회 고유 드롭률 +25% 적용.
+     보류: 100회 전설 변형(장비 변형 시스템 미구현)만.
    ============================================================================ */
 const DUNGEON = {
   party_max: 3,
@@ -37,9 +37,9 @@ const DUNGEON = {
     }
   },
 
-  // 던전별 누적 클리어 보너스 (clear_count_bonus). 100회 전설변형=장비(보류).
+  // 던전별 누적 클리어 보너스 (clear_count_bonus). 100회 전설변형만 보류(변형 시스템 미구현).
   clear_count_bonus: [
-    { count: 50, label: "고유 드롭률 +25%", drop: 0.25 },   // 장비 드롭 — 현재 적용 대상 없음(장비 보류)
+    { count: 50, label: "고유 드롭률 +25%", drop: 0.25 },   // 50회+ 보스 시 추가 장비 드롭 25%(활성)
     { count: 10, label: "보상 +10%", reward_mult: 1.10 }
   ]
 };

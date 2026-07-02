@@ -2,8 +2,8 @@
    Last Call — 손님·만족도·진상 데이터 (index.html에서 <script>로 로드)
    원본(SSOT): lastcall_balance_data.json 의 customers / 설계서 t27_customers.md
    ※ 만족도 게이지(0~100)·임계 명성배수·손님 종류·진상(자동/수동). 값은 전부 SSOT.
-   ※ SSOT 미정 3건 → 값 가정 + 리포트: 넉살 성공률·방치 유예시간·진호출 명성 감소량.
-   ※ 안주(요리) 연계 만족도는 보류(요리 미구현).
+   ※ 값 전부 SSOT 확정: 넉살 성공률(클래스표)·방치 유예 6h·진호출 명성 -10.
+   ※ 안주(요리) 연계 만족도는 cooking(t28)로 활성 — 비치 satisfaction 안주가 baseline 가산.
    ============================================================================ */
 const CUSTOMERS = {
   satisfaction: {

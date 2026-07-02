@@ -2,9 +2,8 @@
    Last Call — 장비(무기·방어구·세트) 데이터 (index.html에서 <script>로 로드)
    원본(SSOT): lastcall_balance_data.json 의 equipment / 설계서 t26_equipment.md
    ※ 도감 카탈로그는 생성형: 무기 5계열×5등급=25 + 방어구 3종×5등급=15 + 세트 7×4부위=28 = 68.
-   ※ 값은 전부 SSOT. SSOT 미정 2건 → 0(기획 리포트): 장신구 등급별 %·방패 피해감소.
-   ※ 세트 피스 효과: 그룹이 명확한 것만 가산 그룹에 매핑(불명확=g:null, 도감/세트 표시만).
-     던전 드롭만 활성(제작=대장일 보류). 장착=용병 단위 / 도감=계정 단위.
+   ※ 값은 전부 SSOT(장신구 %·방패 피해감소 확정: t29). 세트 피스는 그룹 명확한 것만 매핑(불명확=g:null).
+     획득: 던전 드롭(무작위·세트) + 대장일 제작(지정, smithing t29) 공존. 장착=용병 단위 / 도감=계정 단위.
    ============================================================================ */
 const EQUIPMENT = {
   slots: ["무기", "갑옷", "투구", "장신구"],
@@ -61,9 +60,9 @@ function equipItemSurvive(it) {          // 갑옷·투구·방패 피해감소(
   if (!it) return 0;
   if (it.slot === "갑옷") return EQUIPMENT.armor_reduce_by_grade.갑옷[it.grade];
   if (it.slot === "투구") return EQUIPMENT.armor_reduce_by_grade.투구[it.grade];
-  if (it.slot === "무기" && it.line === "방패") return EQUIPMENT.shield_survive_by_grade[it.grade]; // 0(미정)
+  if (it.slot === "무기" && it.line === "방패") return EQUIPMENT.shield_survive_by_grade[it.grade]; // 방패 also_armor(t29 확정)
   return 0;
 }
 function equipItemAccessoryAtk(it) {     // 장신구 % 공격(M_atk)
-  return (it && it.slot === "장신구") ? EQUIPMENT.accessory_atk_by_grade[it.grade] : 0;  // 0(미정)
+  return (it && it.slot === "장신구") ? EQUIPMENT.accessory_atk_by_grade[it.grade] : 0;  // 장신구 M_atk(t29 확정)
 }

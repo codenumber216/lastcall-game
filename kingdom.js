@@ -2,10 +2,8 @@
    Last Call — 왕국 성장(무용담·술통) 데이터 (index.html에서 <script>로 로드)
    원본(SSOT): lastcall_balance_data.json 의 kingdom_systems.stamps/statues
               + _resource_aliases + _growth_readiness + core_formulas.stamp_statue_interpolation
-   ※ 구현 가능 23종만(_status:"deferred" 6종 제외). 값/효과는 전부 SSOT.
-   ※ combat·kingdom 무용담 9종은 SSOT에 mat_per_lv(기부 비용)가 없음 → cost:null(기부 비활성, 효과 배선은 연결).
-     → 기획이 mat_per_lv 채우면 cost만 넣으면 기부 활성됨.
-   target: 효과가 합산될 게임 수치 그룹. null=대상 미지정(레벨/효과 계산만, 게임 미반영).
+   ※ 무용담 17종 전부 + 술통 11종 활성(deferred=축제 술통 1종만, 축제 시스템 미구현). 값/효과 전부 SSOT.
+   target: 효과가 합산될 게임 수치 그룹(확장=upgrade_cost_reduction·왕국=rep_gain 확정). null 없음.
    ============================================================================ */
 const KINGDOM = {
   level_max: 20,
@@ -24,10 +22,10 @@ const KINGDOM = {
     "마법": { lv1: "+5%", max: "+40%", cost: { 마석가루: 20 }, target: "combat_atk" },
     "함정": { lv1: "+5%", max: "+40%", cost: { 독버섯: 20 },  target: "combat_atk" },
     "방어": { lv1: "+3%", max: "+25%", cost: { 광석: 50 },   target: "combat_survive" },
-    "확장": { lv1: "+5%", max: "+40%", cost: { 목재: 50 },   target: null },
+    "확장": { lv1: "+5%", max: "+40%", cost: { 목재: 50 },   target: "upgrade_cost_reduction" },   // 주점 승급 build_cost 자금분 -%
     "원정": { lv1: "+3%", max: "+25%", cost: { 자금: 150 }, target: "discovery" },   // 원정 발견 +%(보상량↑) — 대장일·요리처럼 시스템 구현으로 해제
     "영업": { lv1: "+30분", max: "+5시간", cost: { 자금: 200 }, target: "offline" },   // "영업(오프라인)"
-    "왕국": { lv1: "+5%", max: "+40%", cost: { 자금: 300 },  target: null },
+    "왕국": { lv1: "+5%", max: "+40%", cost: { 자금: 300 },  target: "rep_gain" },   // 전 명성 획득 +%(getter, power 캡 별개)
     "전설": { lv1: "x1.1", max: "x2.0", cost: { 전설홉: 3 },  target: "combat_atk" }     // 곱→가산(eff-1), +150% 클립
   },
 

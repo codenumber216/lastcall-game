@@ -6,7 +6,8 @@
      그룹: gather_rate·brew_speed(생산) / combat_atk·combat_survive(전투) /
            rep_gain·funds_gain / offline / all_skill / xp_조달·xp_all
    ※ 펫 게이트는 우리 스킬모델로 매핑: 채집/벌목/낚시/농사/사냥→조달, 양조→양조,
-     검술/궁술/마법/방패술/함정술→전투. 매핑 불명확(사냥 누적·오프라인 누적·엔딩)은 gate:{unmapped} (자동획득 보류).
+     검술/궁술/마법/방패술/함정술→전투. 사냥늑대=사냥누적1000·끈기거북=오프라인100h 임계 확정.
+     영주의 여우(엔딩 계승)는 엔딩 미구현 → deferred(엔딩 구현 시 해제).
    ============================================================================ */
 const CARDS = {
   grade_dupes: { 실버: 4, 골드: 10, 플래티넘: 20 },  // dupes 임계값(보유1=일반)
@@ -53,7 +54,7 @@ const PETS = {
     { n: 25, g: "xp_all",  v: 0.08 }
   ],
   list: [
-    { id: "사냥 늑대",   specialty: "사냥", effect: "사냥 획득량 +12%", g: "gather_rate", v: 0.12, gate: { type: "unmapped" } }, // '사냥 누적 1000' 매핑불가
+    { id: "사냥 늑대",   specialty: "사냥", effect: "사냥 획득량 +12%", g: "gather_rate", v: 0.12, gate: { type: "gather_count", threshold: 1000 } }, // 사냥 재료 누적 1000개
     { id: "채집 다람쥐", specialty: "채집", effect: "채집 속도 +12%",   g: "gather_rate", v: 0.12, gate: { type: "skill", skill: "조달", lv: 99 } },
     { id: "벌목 비버",   specialty: "벌목", effect: "목재 획득 +15%",   g: "gather_rate", v: 0.15, gate: { type: "skill", skill: "조달", lv: 50 } },
     { id: "낚시 수달",   specialty: "낚시", effect: "희귀 어종 +15%",   g: null, v: 0,            gate: { type: "skill", skill: "조달", lv: 50 } },
@@ -64,16 +65,15 @@ const PETS = {
     { id: "마법 와이번", specialty: "마법", effect: "마법 피해 +15%",   g: "combat_atk", v: 0.15, gate: { type: "skill", skill: "전투", lv: 99 } },
     { id: "방패 고슴도치", specialty: "방어", effect: "습격 피해 -5%",  g: "combat_survive", v: 0.05, gate: { type: "skill", skill: "전투", lv: 70 } },
     { id: "함정 거미",   specialty: "함정", effect: "함정 피해 +20%",   g: null, v: 0,            gate: { type: "skill", skill: "전투", lv: 60 } },
-    { id: "끈기 거북",   specialty: "범용", effect: "오프라인 효율 +5%", g: "offline", v: 5, gate: { type: "unmapped" } }, // '오프라인 누적' 임계값 미정
+    { id: "끈기 거북",   specialty: "범용", effect: "오프라인 효율 +5%", g: "offline", v: 5, gate: { type: "offline_total", threshold_h: 100 } }, // 오프라인 누적 100시간
     { id: "황금 꿀벌",   specialty: "양조", effect: "술 재료 +20%",     g: null, v: 0,            gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } },
-    { id: "영주의 여우", specialty: "범용", effect: "명성·자금 +15%",   g: "funds_gain", v: 0.15, gate: { type: "unmapped" } }, // '엔딩 도달' 미구현
     { id: "원정 군마",   specialty: "원정", effect: "원정 시간 -20%",   g: null, v: 0, gate: { type: "expedition_count", n: 30 } }, // t30: 원정 30회 완료. 시간 -20% 코드 특수 연결
     { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     { id: "접객 고양이", specialty: "접객", effect: "손님 만족 +8%",   g: null, v: 0, gate: { type: "satisfaction_gauge", v: 90 } }, // t27: 만족도 게이지 90 → baseline +8(코드 특수 연결)
     { id: "요리 너구리", specialty: "요리", effect: "안주 효과 +15%",  g: null, v: 0, gate: { type: "skill", skill: "요리", lv: 50 } }, // t28: 요리 Lv.50. '안주 효과 +15%'는 코드 특수 연결(안주 value ×1.15)
     { id: "제작 드래곤", specialty: "대장일", effect: "장비 품질 +1등급 확률", g: null, v: 0, gate: { type: "skill", skill: "대장일", lv: 80 } } // t29: 대장일 Lv.80. 품질(등급업 확률) 코드 특수 연결
   ],
-  deferred: ["경영 부엉이", "홍보 앵무", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
+  deferred: ["영주의 여우", "경영 부엉이", "홍보 앵무", "행운 토끼", "야행 유령", "충견 무사", "콩이의 친구"]
 };
 
 /* ── 도감 완성도 마일스톤 (SSOT completion_log.completion_basis / milestone_rule) ──

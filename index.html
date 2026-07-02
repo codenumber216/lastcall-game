@@ -364,6 +364,8 @@ function freshState() {
     cookSlot: { charId: null, snackId: COOKING.snacks[0].name, progressSec: 0 },  // 요리 슬롯(안주 제조)
     smithing: { charId: null, part: SMITHING.parts[0], grade: "일반", progressSec: 0 },  // 대장일 슬롯(장비 제작)
     expedition: { charId: null, dispatch: EXPEDITION.dispatches[0].name, remainingSec: 0, totalSec: 0, active: false, completedCount: 0 },  // 원정 파견
+    huntGathered: 0,          // 사냥 재료 누적 획득 수(사냥 늑대 펫 임계 1000)
+    offlineTotalH: 0,         // 오프라인 누적 시간(끈기 거북 펫 임계 100h)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     lastSaved: Date.now()
   };
@@ -518,6 +520,8 @@ function petGateMet(g) {
   if (g.type === "dual") return maxSkillLv(g.a.skill) >= g.a.lv && maxSkillLv(g.b.skill) >= g.b.lv;
   if (g.type === "satisfaction_gauge") return state.satisfaction >= g.v;   // t27: 접객 고양이 만족도 90
   if (g.type === "expedition_count") return (state.expedition.completedCount || 0) >= g.n;   // t30: 원정 군마 30회
+  if (g.type === "gather_count") return (state.huntGathered || 0) >= g.threshold;   // 사냥 늑대: 사냥 누적 1000
+  if (g.type === "offline_total") return (state.offlineTotalH || 0) >= g.threshold_h;   // 끈기 거북: 오프라인 100h
   return false; // unmapped / raidTier는 자동획득 보류·격퇴 시 처리
 }
 // 조건형(손님 카드·스킬/격퇴/이중 펫) 폴링: tick마다 호출(이미 보유는 무시).
@@ -897,6 +901,11 @@ function clearCountRewardMult(name) {
   for (const b of DUNGEON.clear_count_bonus) if (b.reward_mult && c >= b.count) return b.reward_mult;
   return 1;
 }
+function clearCountDropBonus(name) {   // 50회+ 고유 드롭률 +25%
+  const c = state.dungeon.clears[name] || 0;
+  for (const b of DUNGEON.clear_count_bonus) if (b.drop && c >= b.count) return b.drop;
+  return 0;
+}
 // 키 충전: 8게임시간마다 +1(cap). 오프라인 큰 dt도 while로 일괄 가산.
 function tickDungeonKeys(dtSec) {
   const dg = state.dungeon, interval = DUNGEON.key.recharge_interval_h * 3600 / TIME_SCALE;
@@ -989,6 +998,9 @@ function resolveDungeonRun() {
       grantEquipment(`${sdef.name} ${slot}`);
       const pool = EQUIP_CATALOG.filter(it => it.kind !== "set" && it.grade === sdef.grade);
       if (pool.length) grantEquipment(pool[Math.floor(Math.random() * pool.length)].id);
+      // 50회+ 고유 드롭률 +25%: 추가 장비 드롭
+      const dropBonus = clearCountDropBonus(d.name);
+      if (dropBonus > 0 && pool.length && Math.random() < dropBonus) grantEquipment(pool[Math.floor(Math.random() * pool.length)].id);
       cardTxt += ` · ⚔️ 장비 드롭`;
     }
   }
@@ -1533,6 +1545,7 @@ function tickGathering(dtSec) {
       const next = (state.materials[mat] || 0) + baseAdd * gm;
       state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
       units += baseAdd;   // XP 베이스는 getter 전(획득 XP getter는 addSkillXp에서 별도 적용)
+      if (actId === "사냥") state.huntGathered = (state.huntGathered || 0) + baseAdd;   // 사냥 재료 누적(펫 임계)
     }
     addSkillXp(cid, "조달", units * SKILLS.gather_xp_per_material);  // 채집 재료 1개당 조달 XP 3
   }
@@ -1781,6 +1794,8 @@ function load() {
     if (typeof ex.totalSec === "number") state.expedition.totalSec = Math.max(0, ex.totalSec);
     if (typeof ex.completedCount === "number") state.expedition.completedCount = Math.max(0, Math.floor(ex.completedCount));
   }
+  if (typeof saved.huntGathered === "number") state.huntGathered = Math.max(0, saved.huntGathered);
+  if (typeof saved.offlineTotalH === "number") state.offlineTotalH = Math.max(0, saved.offlineTotalH);
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
@@ -1797,6 +1812,7 @@ function load() {
   // ── 오프라인 정산 (efficiency 적용) ──
   const realSec = (Date.now() - state.lastSaved) / 1000;
   if (realSec < 1) return;
+  state.offlineTotalH = (state.offlineTotalH || 0) + realSec / 3600;   // 오프라인 누적(끈기 거북 임계 100h)
   const cappedSec = Math.min(realSec, OFFLINE_HARDCAP_H * 3600);
   const productiveSec = Math.min(cappedSec, OFFLINE_BASE_H * 3600);
   const productiveH = productiveSec / 3600;
@@ -1981,12 +1997,14 @@ function pourDrink(slotIndex, drinkId) {
 
 // 승급 비용 항목의 현재 보유량 (명성=게이트/비소비, 자금, 그 외=재료)
 function costHave(k) { return k === "명성" ? state.reputation : k === "자금" ? state.funds : (state.materials[k] || 0); }
+// 확장 무용담: 승급 build_cost의 자금분 감소(건설 시간 없음 → 비용 절감). 재료·명성분은 불변.
+function buildCostAmount(k, v) { return k === "자금" ? Math.ceil(v * (1 - Math.min(0.95, kingdomBonus("upgrade_cost_reduction")))) : v; }
 // 다음 단계로 승급 가능한가 (명성 게이트 + 비용 전액 보유)
 function canPromote() {
   if (state.tavernStage >= 6) return false;
   const next = STAGES[state.tavernStage];                 // 다음 단계
   if (state.reputation < next.reputation_min) return false;
-  for (const [k, v] of Object.entries(next.build_cost)) if (costHave(k) < v) return false;
+  for (const [k, v] of Object.entries(next.build_cost)) if (costHave(k) < buildCostAmount(k, v)) return false;
   return true;
 }
 
@@ -2009,8 +2027,9 @@ function renderProgress() {
     }
     Object.entries(next.build_cost).forEach(([k, v]) => {
       if (k === "명성") return;
-      const ok = costHave(k) >= v;
-      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${v}</span>`);
+      const need = buildCostAmount(k, v);   // 확장 무용담 절감 반영
+      const ok = costHave(k) >= need;
+      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${need}</span>`);
     });
     const costStr = parts.join(", ");
     html += `<div class="gather-sub" style="margin:8px 0 4px">▶ ${next.stage}단계 '${next.name}' 승급 필요: ${costStr}</div>
@@ -2053,7 +2072,7 @@ function promote() {
   const next = STAGES[state.tavernStage];
   for (const [k, v] of Object.entries(next.build_cost)) {
     if (k === "명성") continue;                            // 게이트(비소비)
-    if (k === "자금") state.funds -= v;
+    if (k === "자금") state.funds -= buildCostAmount(k, v);   // 확장 무용담 절감 반영
     else state.materials[k] = (state.materials[k] || 0) - v;
   }
   state.tavernStage = next.stage;
@@ -2746,7 +2765,7 @@ document.getElementById("btn-stage").onclick = () => {
   log(`[개발] 주점 ${state.tavernStage}단계 → 발효/채집 슬롯 ${slotCount()}칸으로 확장.`);
   render();
 };
-// 개발용: 승급 재화 지급 (금속·자금은 전투/외상 시스템 미구현이라 소스가 없어 테스트용)
+// 개발용: 승급 재화 지급 (상위 단계 금속·자금을 빠르게 채우는 테스트용 단축키)
 document.getElementById("btn-grant").onclick = () => {
   state.reputation += 60000;
   state.funds += 100000;
