@@ -142,6 +142,12 @@
   <div id="ui-customers"></div>
 </div>
 
+<!-- ─────────── 소문내기 (명성 활동) ─────────── -->
+<div class="card" id="card-promo">
+  <div class="label">📣 소문내기 <span style="font-weight:normal;font-size:12px">(용병 배치 → 시간당 명성 · 배치 50h면 소문 참새 펫)</span></div>
+  <div id="ui-promo"></div>
+</div>
+
 <!-- ─────────── 왕국 성장 (무용담·술통 기부) ─────────── -->
 <div class="card" id="card-kingdom">
   <div class="label">🏛️ 왕국 성장 <span style="font-weight:normal;font-size:12px">(자원 기부 → 영구 보너스 · Lv 1~20)</span></div>
@@ -220,6 +226,36 @@
   <div id="ui-expedition"></div>
 </div>
 
+<!-- ─────────── 자동 증류탑 (샘플링) ─────────── -->
+<div class="card" id="card-distillery">
+  <div class="label">🏭 자동 증류탑 <span style="font-weight:normal;font-size:12px">(샘플 등록 → 매시간 무료 자동 생산 · 용병·재료 미점유 · World 3 해금)</span></div>
+  <div id="ui-distillery"></div>
+</div>
+
+<!-- ─────────── 비밀 양조 가마솥 (연금·거품) ─────────── -->
+<div class="card" id="card-alchemy">
+  <div class="label">⚗️ 비밀 양조 가마솥 <span style="font-weight:normal;font-size:12px">(재료 투입 → 거품 레벨업 → 영구 패시브 · World 2 해금)</span></div>
+  <div id="ui-alchemy"></div>
+</div>
+
+<!-- ─────────── 명예의 망토 (스킬 Lv.99 케이프) ─────────── -->
+<div class="card" id="card-cloaks">
+  <div class="label">🎖️ 명예의 망토 <span style="font-weight:normal;font-size:12px">(스킬 트랙 Lv.99 달성 → 계정 영구 퍽 · 6트랙)</span></div>
+  <div id="ui-cloaks"></div>
+</div>
+
+<!-- ─────────── 동맹 (5세력) ─────────── -->
+<div class="card" id="card-alliances">
+  <div class="label">🤝 동맹 <span style="font-weight:normal;font-size:12px">(명성 5000 해금 · 조건 충족 시 체결 → 영구 보너스 · 5세력)</span></div>
+  <div id="ui-alliances"></div>
+</div>
+
+<!-- ─────────── 용병 관계 (친분) ─────────── -->
+<div class="card" id="card-relationship">
+  <div class="label">💞 용병 관계 <span style="font-weight:normal;font-size:12px">(배치 근무로 친분 상승 → Lv.3/5 보상 · 6인)</span></div>
+  <div id="ui-relationship"></div>
+</div>
+
 <!-- ─────────── 스킬 (용병별 양조·조달 레벨) ─────────── -->
 <div class="card">
   <div class="label">📈 스킬 <span style="font-weight:normal;font-size:12px">(활동하면 XP 적립·레벨업 → 속도·산출 ↑)</span></div>
@@ -285,6 +321,11 @@
 <script src="cooking.js"></script>
 <script src="smithing.js"></script>
 <script src="expedition.js"></script>
+<script src="distillery.js"></script>
+<script src="alchemy.js"></script>
+<script src="cloaks.js"></script>
+<script src="alliances.js"></script>
+<script src="relationship.js"></script>
 
 <script>
 /* ============================================================================
@@ -312,6 +353,19 @@ const MAT_CAP = 9999;              // storage_cap_per_material
 
 /* ── 오프라인 효율 구간 (economy.offline_efficiency / offline_base_hours) ── */
 const OFFLINE_BASE_H = 24, OFFLINE_FULL_H = 6, OFFLINE_EFF_HIGH = 0.95, OFFLINE_EFF_LOW = 0.85;
+// 오프라인 생산 정지점 연장(시간): 영업 무용담(분) + 시간 거품(분). 하드캡 36h는 호출부에서.
+function offlineExtendHours() {
+  const stampMin = (typeof kingdomBonus === "function") ? kingdomBonus("offline") : 0;        // 영업 무용담: 분
+  const bubbleMin = (typeof cauldronBonus === "function") ? cauldronBonus("offline_min") : 0;  // 시간 거품: 분
+  return (stampMin + bubbleMin) / 60;
+}
+// 오프라인 효율 가산 보너스(끈기 거북: 장착 펫, 분수). 효율 × (1+이 값).
+function offlineEffBonus() { return (typeof equippedPetBonusAll === "function") ? equippedPetBonusAll("offline") : 0; }
+
+// 외상 장부(credit_ledger): 접대 자금의 accrual만큼 이연 → recover_rate/h로 자금 전환. 셀라(해결사) 배치 ×2.
+const CREDIT = { accrual: 0.20, recover_rate_per_h: 0.15, sela_mult: 2.0 };
+// 소문내기 활동: 배치 용병 1명 → 명성/h (reputation.gain_actions.소문내기_활동.per_hour_base=15). 소문 참새 펫 게이트=배치 50h.
+const PROMO_REP_PER_H = 15;
 
 // ⚙️ 개발용 시간 배속 (출시 때 1로): 3600초 ÷ 1200 = 3초마다 1병(1시간짜리·보너스 0 기준)
 const TIME_SCALE = 1200;
@@ -341,6 +395,7 @@ function freshState() {
     materials, drinks, tavernStage: 1, brewSlots, gatherAssign, buffSlots,
     reputation: 0,            // 명성(비소비 누적 점수)
     funds: 0,                 // 자금(승급 비용·소비)
+    creditLedger: 0,          // 외상 미수금(접대 20% 이연 → 회수 rate/h로 자금 전환)
     skills: freshSkills(),    // 용병별 스킬 { charId: { 양조, 조달, 전투 : {lv,xp} } }
     combat: freshCombat(),    // 전투 상태(방벽·습격 타이머·부상 등)
     orders: { active: [], timerSec: weekSec(), repeatCount: {} },  // 의뢰 게시판(active는 부팅/로드 후 생성)
@@ -356,6 +411,8 @@ function freshState() {
     events: freshEvents(),    // 이벤트 & 날씨(날씨·일일·특별 이벤트)
     satisfaction: CUSTOMERS.satisfaction.start,  // 만족도 게이지(0~100, 시작 50)
     serveAssign: null,        // 접객 담당 용병(만족도 +/h·진상 자동 대응)
+    promoAssign: null,        // 소문내기 담당 용병(명성 +/h)
+    promoHours: 0,            // 소문내기 배치 누적 시간(소문 참새 펫 게이트)
     customerServes: {},       // 손님 종류별 누적 접대 { 종류: n }
     autoServeAcc: 0,          // 자동 접대 소수 누적(접객 용병 배치 시)
     nuisance: { active: false, timerSec: 0 },    // 진상 손님 상태
@@ -364,6 +421,11 @@ function freshState() {
     cookSlot: { charId: null, snackId: COOKING.snacks[0].name, progressSec: 0 },  // 요리 슬롯(안주 제조)
     smithing: { charId: null, part: SMITHING.parts[0], grade: "일반", progressSec: 0 },  // 대장일 슬롯(장비 제작)
     expedition: { charId: null, dispatch: EXPEDITION.dispatches[0].name, remainingSec: 0, totalSec: 0, active: false, completedCount: 0 },  // 원정 파견
+    distillery: { level: 0, slots: [] },  // 자동 증류탑(레벨 0=미건립, 슬롯=샘플 데이터 보유)
+    alchemy: { bubbles: {} },  // 가마솥 거품 { 거품id: lv } — 영구 가산 버프(재료 투입으로 즉시 레벨업)
+    cloaks: { owned: {} },  // 명예의 망토 { 트랙: true } — 트랙 Lv.99 달성 시 획득(계정 영구 퍽)
+    alliances: { formed: {} },  // 동맹 { 세력: true } — 명성5000 해금·조건 충족 시 체결(영구 가산)
+    relationships: {},  // 용병 친분 { charId: 누적근무시간 } — Lv.3/5 관계 보상(relationship.js)
     huntGathered: 0,          // 사냥 재료 누적 획득 수(사냥 늑대 펫 임계 1000)
     offlineTotalH: 0,         // 오프라인 누적 시간(끈기 거북 펫 임계 100h)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
@@ -472,7 +534,7 @@ function cardPetAccountBonus(target) {
 function equippedPetBonus(charId, target) { let s = 0; (state.petEquip[charId] || []).forEach(n => { const p = PET_BY_ID[n]; if (p && p.g === target) s += p.v; }); return s; }
 function equippedPetBonusAll(target) { let s = 0; for (const id in CHARACTERS) s += equippedPetBonus(id, target); return s; }
 // XP 가속(카드·펫 도감 + 완성도 마일스톤): 스킬별 xp_조달/xp_전투 + 전역 xp_all
-function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t); return s; }
+function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp") + cauldronBonus("xp_all"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t) + relationshipBonus(t); return s; }
 
 // 도감 완성도(SSOT completion_log.completion_basis): 보유 종 수 ÷ 획득 가능 종 수(deferred 제외).
 function domeOwnedCount() { return CARDS.list.filter(c => cardOwned(c.id)).length + petOwnedCount(); }  // 카드 grade≥일반·펫 owned
@@ -522,6 +584,11 @@ function petGateMet(g) {
   if (g.type === "expedition_count") return (state.expedition.completedCount || 0) >= g.n;   // t30: 원정 군마 30회
   if (g.type === "gather_count") return (state.huntGathered || 0) >= g.threshold;   // 사냥 늑대: 사냥 누적 1000
   if (g.type === "offline_total") return (state.offlineTotalH || 0) >= g.threshold_h;   // 끈기 거북: 오프라인 100h
+  if (g.type === "relationship") return (typeof relLevel === "function") && relLevel(g.char) >= g.lv;   // 충견 무사: 진 관계 Lv.5
+  if (g.type === "reputation") return (state.reputation || 0) >= g.min;   // 경영 부엉이: 명성 5000
+  if (g.type === "night_count") return (state.events && state.events.nightCount || 0) >= g.n;   // 야행 유령: 밤 5회
+  if (g.type === "festival_count") return (state.events && state.events.festival && state.events.festival.count || 0) >= g.n;   // 행운 토끼: 축제 10회
+  if (g.type === "promo_hours") return (state.promoHours || 0) >= g.n;   // 소문 참새: 소문내기 배치 50h
   return false; // unmapped / raidTier는 자동획득 보류·격퇴 시 처리
 }
 // 조건형(손님 카드·스킬/격퇴/이중 펫) 폴링: tick마다 호출(이미 보유는 무시).
@@ -598,7 +665,11 @@ function freshEvents() {
     dayTimerSec: EVENTS.daily.interval_h * 3600 / TIME_SCALE,         // 다음 일일 경계까지
     lastDailyDay: 0,                                                  // 누적 게임일(특별 이벤트 주기 판정)
     special: { "대목": { remainDays: 0 }, "마왕의외상": { remainDays: 0 }, "음유시인": { remainDays: 0 } },
-    titles: {}                                                        // 획득 칭호
+    titles: {},                                                       // 획득 칭호
+    isNight: false,                                                   // t31 야간 위상
+    nightTimerSec: EVENTS.night.day_h * 3600 / TIME_SCALE,           // 현재 위상(낮) 남은 시간
+    nightCount: 0,                                                    // 밤 진입 누적(야행 유령 게이트)
+    festival: { active: false, remainingSec: 0, count: 0 }           // t31 축제(개최 중·남은 시간·누적)
   };
 }
 // 던전 원정 초기 상태
@@ -629,6 +700,7 @@ function assignedCharIds() {
   for (const act in state.gatherAssign) if (state.gatherAssign[act]) set.add(state.gatherAssign[act]);
   if (state.dungeon && state.dungeon.run) state.dungeon.party.forEach(id => set.add(id));  // 원정 중 파티 점유
   if (state.serveAssign) set.add(state.serveAssign);   // 접객 담당 점유
+  if (state.promoAssign) set.add(state.promoAssign);   // 소문내기 담당 점유
   if (state.cookSlot && state.cookSlot.charId) set.add(state.cookSlot.charId);   // 요리 담당 점유
   if (state.smithing && state.smithing.charId) set.add(state.smithing.charId);   // 대장일 담당 점유
   if (state.expedition && state.expedition.active && state.expedition.charId) set.add(state.expedition.charId);   // 원정 파견 중 점유
@@ -664,7 +736,8 @@ function gatherSkillBonus(charId) {
     + kingdomBonus("gather_rate") + kingdomBonus("all_skill")
     + cardPetAccountBonus("gather_rate") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill")
-    + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill");   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
+    + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill")   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
+    + cauldronBonus("gather_rate") + allianceBonus("gather_rate") + nightProductionBonus();   // 가마솥 + 동맹 + 야간(야행 유령)
   return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
@@ -677,7 +750,8 @@ function brewSpeedBonus(charId) {
   b += kingdomBonus("brew_speed") + kingdomBonus("all_skill")    // 양조 무용담·술통·왕의 술통
     + cardPetAccountBonus("brew_speed") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill")  // 양조 두꺼비 등
-    + mercSetBonus(charId, "all_skill");   // 장비 세트(마왕성 전 스킬)
+    + mercSetBonus(charId, "all_skill")   // 장비 세트(마왕성 전 스킬)
+    + cauldronBonus("brew_speed") + relationshipBonus("brew_speed") + nightProductionBonus();   // 가마솥(발효) + 관계(보리) + 야간(야행 유령)
   return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
@@ -764,13 +838,13 @@ function combatAtkMult(ids) {
   let eq = 0; ids.forEach(id => eq += mercAccessoryAtk(id) + mercSetBonus(id, "combat_atk") + mercSetBonus(id, "all_skill"));
   return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
     + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
-    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk"));   // 비치 안주(전투력)
+    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk") + cauldronBonus("combat_atk") + cloakBonus("combat_atk") + allianceBonus("combat_atk") + relationshipBonus("combat_atk"));   // 비치 안주 + 가마솥 + 망토 + 동맹 + 관계(콩이)
 }
 function combatSurviveMult(ids) {
   ids = ids || [];
   let eq = 0; ids.forEach(id => eq += mercSurvive(id) + mercSetBonus(id, "combat_survive"));   // 갑옷·투구·방패 + 세트 방어
   return 1 + Math.min(COMBAT.m_survive_cap, combatBuffTotals().survive + kingdomBonus("combat_survive")
-    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive") + eq + snackBonus("survive"));   // 비치 안주(생존)
+    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive") + eq + snackBonus("survive") + cauldronBonus("combat_survive"));   // 비치 안주(생존) + 가마솥(철벽)
 }
 function combatAccountMult() { return 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k); }
 // 아군 방어 전력 = P_base × M_atk × M_survive × M_audience × M_account (resolution 공식)
@@ -901,11 +975,7 @@ function clearCountRewardMult(name) {
   for (const b of DUNGEON.clear_count_bonus) if (b.reward_mult && c >= b.count) return b.reward_mult;
   return 1;
 }
-function clearCountDropBonus(name) {   // 50회+ 고유 드롭률 +25%
-  const c = state.dungeon.clears[name] || 0;
-  for (const b of DUNGEON.clear_count_bonus) if (b.drop && c >= b.count) return b.drop;
-  return 0;
-}
+// (50회+ 고유 드롭률 +25%는 resolveDungeonRun에서 drop_rate.clear50_set_bonus로 직접 처리)
 // 키 충전: 8게임시간마다 +1(cap). 오프라인 큰 dt도 while로 일괄 가산.
 function tickDungeonKeys(dtSec) {
   const dg = state.dungeon, interval = DUNGEON.key.recharge_interval_h * 3600 / TIME_SCALE;
@@ -991,17 +1061,17 @@ function resolveDungeonRun() {
     const cardName = DUNGEON.rewards.boss.card;
     if (!cardOwned(cardName)) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 획득!`; }   // 첫 클리어 보장
     else if (Math.random() < DUNGEON.rewards.boss.repeat_rate) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 중복`; }
-    // 장비 드롭(보스 보장): 던전 고유 세트 1부위(랜덤) + 같은 등급 일반 장비 1개. ※ 드롭률은 SSOT 미정 → 보장 처리(기획 리포트)
+    // 장비 드롭(보스): set_piece·common 독립 롤(drop_rate SSOT, 등급별 확률). 자금·재료·카드는 별도 보장.
     const sdef = EQUIP_SET_BY_DUNGEON[d.name];
     if (sdef) {
-      const slot = EQUIPMENT.slots[Math.floor(Math.random() * EQUIPMENT.slots.length)];
-      grantEquipment(`${sdef.name} ${slot}`);
-      const pool = EQUIP_CATALOG.filter(it => it.kind !== "set" && it.grade === sdef.grade);
-      if (pool.length) grantEquipment(pool[Math.floor(Math.random() * pool.length)].id);
-      // 50회+ 고유 드롭률 +25%: 추가 장비 드롭
-      const dropBonus = clearCountDropBonus(d.name);
-      if (dropBonus > 0 && pool.length && Math.random() < dropBonus) grantEquipment(pool[Math.floor(Math.random() * pool.length)].id);
-      cardTxt += ` · ⚔️ 장비 드롭`;
+      const DR = DUNGEON.rewards.drop_rate, grade = d.grade, clears = state.dungeon.clears[d.name] || 0;
+      const setRate = Math.min(DR.prob_cap, (DR.set_piece_by_grade[grade] || 0) + (clears >= 50 ? DR.clear50_set_bonus : 0));  // 50회+ 고유 드롭 +25%
+      const commonRate = DR.common_by_grade[grade] || 0;
+      const drops = [];
+      if (Math.random() < setRate) { const slot = EQUIPMENT.slots[Math.floor(Math.random() * EQUIPMENT.slots.length)]; grantEquipment(`${sdef.name} ${slot}`); drops.push("세트"); }
+      const pool = EQUIP_CATALOG.filter(it => it.kind !== "set" && it.grade === sdef.grade);   // 아이템 등급=세트 장비 등급(일반/고급/…), 확률은 던전 등급(하급/중급/상급)
+      if (pool.length && Math.random() < commonRate) { grantEquipment(pool[Math.floor(Math.random() * pool.length)].id); drops.push("일반"); }
+      if (drops.length) cardTxt += ` · ⚔️ 장비 드롭(${drops.join("+")})`;
     }
   }
   state.funds += funds;
@@ -1120,7 +1190,46 @@ function tickEvents(dtSec) {
   ev.dayTimerSec -= dtSec;
   let g = 0;
   while (ev.dayTimerSec <= 0 && g++ < 100000) { ev.dayTimerSec += EVENTS.daily.interval_h * 3600 / TIME_SCALE; onDayBoundary(); }
+  // t31 야간: 낮/밤 자동 순환. 밤 진입마다 nightCount++.
+  ev.nightTimerSec -= dtSec;
+  let n = 0;
+  while (ev.nightTimerSec <= 0 && n++ < 100000) {
+    ev.isNight = !ev.isNight;
+    ev.nightTimerSec += (ev.isNight ? EVENTS.night.night_h : EVENTS.night.day_h) * 3600 / TIME_SCALE;
+    if (ev.isNight) { ev.nightCount = (ev.nightCount || 0) + 1; needsFullRender = true; }
+  }
+  // t31 축제: 개최 중이면 지속 카운트다운.
+  const f = ev.festival;
+  if (f && f.active) { f.remainingSec -= dtSec; if (f.remainingSec <= 0) { f.active = false; f.remainingSec = 0; f.count = (f.count || 0) + 1; needsFullRender = true; if (!settling) log(`🎪 축제 종료 (누적 ${f.count}회).`); } }
 }
+// t31 축제 개최: 비용 지불 → 지속 활성 + 즉시 명성.
+function holdFestival() {
+  const ev = state.events, F = EVENTS.festival;
+  if (state.reputation < F.unlock_rep) { log(`축제는 명성 ${F.unlock_rep} 이상에서 개최할 수 있습니다.`); render(); return; }
+  if (ev.festival.active) { log("이미 축제가 진행 중입니다."); render(); return; }
+  const drinkTotal = Object.values(state.drinks).reduce((a, b) => a + b, 0);
+  if (state.funds < F.cost.자금 || drinkTotal < F.cost.drinks_any) { log(`축제 개최 비용 부족: 자금 ${F.cost.자금} + 술 ${F.cost.drinks_any}병`); render(); return; }
+  state.funds -= F.cost.자금;
+  let need = F.cost.drinks_any; for (const id in state.drinks) { if (need <= 0) break; const t = Math.min(need, state.drinks[id]); state.drinks[id] -= t; need -= t; }
+  ev.festival.active = true;
+  ev.festival.remainingSec = F.duration_h * (1 + festivalDurationBonus()) * 3600 / TIME_SCALE;
+  state.reputation += F.rep_on_hold * repGainMult();
+  log(`🎪 축제 개최! ${F.duration_h}h 지속 · 접객 명성 ×${F.serve_rep_mult} · 즉시 명성 +${F.rep_on_hold}`);
+  render();
+}
+// 축제 술통(kingdom statue target festival_duration) → 지속 시간 +% (분 → 배수 근사)
+function festivalDurationBonus() { const m = (typeof kingdomBonus === "function") ? kingdomBonus("festival_duration") : 0; return m / (EVENTS.festival.duration_h * 60); }
+function festivalActive() { return !!(state.events && state.events.festival && state.events.festival.active); }
+function festivalServeMult() { return festivalActive() ? EVENTS.festival.serve_rep_mult : 1; }
+// t31 야간 생산 보너스(야행 유령 장착 & 밤): 조달·양조 가산.
+function nightProductionBonus() { return (state.events && state.events.isNight && (typeof equippedPetBonusAll === "function") && equippedPetBonusAll("night_prod") > 0) ? equippedPetBonusAll("night_prod") : 0; }
+// t31 희귀 드롭 배수: 행운 거품 + 행운 토끼(장착).
+function luckBonus() {
+  let b = (typeof cauldronBonus === "function") ? cauldronBonus("rare_drop") : 0;
+  b += (typeof equippedPetBonusAll === "function") ? equippedPetBonusAll("rare_drop") : 0;
+  return b;
+}
+const RARE_MATERIALS = new Set(EVENTS.luck.rare_materials);
 
 
 /* ── 손님·만족도·진상 엔진 (t27) ──────────────────────────────────────────── */
@@ -1130,7 +1239,7 @@ function clampSat(s) { return Math.max(SAT.min, Math.min(SAT.max, s)); }
 function satisfactionBaseline() {
   let petB = 0;
   for (const n in SAT.baseline_pet_bonus) if (petEquippedMerc(n)) petB += SAT.baseline_pet_bonus[n];   // ④ 접객 고양이 장착 → +8
-  return Math.min(100, 50 + kingdomBonus("satisfaction") * 50 + petB + snackBonus("satisfaction"));   // 비치 안주(만족도)
+  return Math.min(100, 50 + kingdomBonus("satisfaction") * 50 + petB + snackBonus("satisfaction") + cauldronBonus("satisfaction") * 50);   // 비치 안주(만족도) + 가마솥(환대)
 }
 // 만족도 임계 → 접객 명성/자금 배수 (명성 getter, power 캡 별개)
 function satisfactionRepMult() { const s = state.satisfaction; for (const t of SAT.tiers) if (s <= t.max) return t.rep_mult; return 1; }
@@ -1146,17 +1255,20 @@ function countCustomerServe(t, c) {
 function serveOne() {
   const t = drawCustomerType(); countCustomerServe(t, 1);
   const a = REP_ACTIONS.serve, satMult = satisfactionRepMult();
-  const rep = a.rep * satMult * repGainMult() * weatherServeRepMult() * daemokServeMult();
+  const rep = a.rep * satMult * repGainMult() * weatherServeRepMult() * daemokServeMult() * festivalServeMult();
   const funds = (a.funds / a.per) * satMult * fundsGainMult();
-  state.reputation += rep; state.funds += funds;
-  return { rep, funds };
+  const immediate = funds * (1 - CREDIT.accrual);   // 접대 즉시 80% + 외상 20% 이연
+  state.reputation += rep; state.funds += immediate; state.creditLedger = (state.creditLedger || 0) + funds * CREDIT.accrual;
+  return { rep, funds: immediate };
 }
 // n명 일괄(오프라인용): 종류 기대 분배 + 보상 일괄(루프 회피).
 function serveBulk(n) {
   if (n <= 0) return;
   const a = REP_ACTIONS.serve, satMult = satisfactionRepMult();
-  state.reputation += a.rep * satMult * repGainMult() * weatherServeRepMult() * daemokServeMult() * n;
-  state.funds += (a.funds / a.per) * satMult * fundsGainMult() * n;
+  state.reputation += a.rep * satMult * repGainMult() * weatherServeRepMult() * daemokServeMult() * festivalServeMult() * n;
+  const totalFunds = (a.funds / a.per) * satMult * fundsGainMult() * n;
+  state.funds += totalFunds * (1 - CREDIT.accrual);                                  // 즉시 80%
+  state.creditLedger = (state.creditLedger || 0) + totalFunds * CREDIT.accrual;      // 외상 20% 이연
   for (const t in CUSTOMERS.types) { const c = Math.round(CUSTOMERS.types[t] * n); if (c > 0) countCustomerServe(t, c); }
 }
 // 정중 응대 성공률 = 접객 배치 용병 클래스 기반(미배치/타 클래스 default)
@@ -1177,6 +1289,41 @@ function tickNuisance(dtSec) {
   const sm = serveMerc();
   if (sm) resolveNuisanceAuto(sm);   // 접객 용병 배치 → 자동 대응
   else { n.timerSec -= dtSec; if (n.timerSec <= 0) { state.satisfaction = clampSat(state.satisfaction - CUSTOMERS.nuisance.afk_penalty); n.active = false; needsFullRender = true; if (!settling) log(`😡 진상 손님 방치 — 만족도 -${CUSTOMERS.nuisance.afk_penalty}`); } }
+}
+// 외상 회수: 장부 잔액 × rate/h → 자금. 셀라(해결사) 접객 배치 ×2 + 외상 거품(가마솥).
+function creditRecoveryBonus() {
+  let b = (typeof cauldronBonus === "function") ? cauldronBonus("credit_recovery") : 0;   // 외상 거품
+  b += (typeof equippedPetBonusAll === "function") ? equippedPetBonusAll("credit_recovery") : 0;  // 경영 부엉이(구현 시)
+  b += (typeof relationshipBonus === "function") ? relationshipBonus("credit_recovery") : 0;      // 셀라 관계 Lv.3(외상 회수 +20%)
+  return b;
+}
+// 소문내기: 배치 용병 1명 → 명성/h (명성 배수 적용). 배치 시간은 소문 참새 펫 게이트로 누적.
+function promoMerc() { const id = state.promoAssign; return (id && CHARACTERS[id] && isRecruited(id) && !isInjured(id)) ? id : null; }
+function tickPromo(dtSec) {
+  const sm = promoMerc(); if (!sm) return;
+  const gameH = dtSecToGameHours(dtSec); if (gameH <= 0) return;
+  state.reputation += PROMO_REP_PER_H * gameH * repGainMult();
+  state.promoHours = (state.promoHours || 0) + gameH;
+}
+function assignPromo(charId) {
+  if (charId) {
+    if (!CHARACTERS[charId] || !isMercAvailable(charId)) { log("아직 영입되지 않은 용병입니다."); render(); return; }
+    if (isInjured(charId)) { log(`${CHARACTERS[charId].name}은(는) 부상 중입니다.`); render(); return; }
+    if (assignedCharIds().has(charId) && state.promoAssign !== charId) { log(`${CHARACTERS[charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  }
+  state.promoAssign = charId && CHARACTERS[charId] ? charId : null;
+  log(charId ? `${CHARACTERS[charId].name} → 소문내기 배치` : "소문내기 용병 해제");
+  render();
+}
+function tickCredit(dtSec) {
+  if (!state.creditLedger || state.creditLedger <= 0) { if (state.creditLedger < 0) state.creditLedger = 0; return; }
+  const gameH = dtSecToGameHours(dtSec); if (gameH <= 0) return;
+  let rate = CREDIT.recover_rate_per_h;
+  const sm = serveMerc();
+  if (sm && CHARACTERS[sm].class === "해결사") rate *= CREDIT.sela_mult;   // 셀라 접객 배치 → 회수 ×2
+  rate *= (1 + creditRecoveryBonus());
+  const rec = Math.min(state.creditLedger, state.creditLedger * rate * gameH);
+  state.creditLedger -= rec; state.funds += rec;
 }
 function tickCustomers(dtSec) {
   const gameH = dtSecToGameHours(dtSec);
@@ -1231,7 +1378,7 @@ function assignServe(charId) {
 
 
 /* ── 요리·안주 엔진 (t28) ─────────────────────────────────────────────────── */
-function snackEffectMult() { return 1 + (petEquippedMerc("요리 너구리") ? COOKING.racoon_bonus : 0); }   // 요리 너구리 장착 → 안주 효과 ×1.15
+function snackEffectMult() { return 1 + (petEquippedMerc("요리 너구리") ? COOKING.racoon_bonus : 0) + cloakSnackAdd(); }   // 요리 너구리 ×1.15 + 망토(명요리사 +0.50)
 // 비치 안주의 그룹별 효과 합(survive/atk/satisfaction/xp) × 요리너구리
 function snackBonus(group) {
   let s = 0;
@@ -1289,7 +1436,7 @@ function setCookSnack(snackId) { if (SNACK_BY_ID[snackId]) { state.cookSlot.snac
 /* ── 대장일(제작) 엔진 (t29) ──────────────────────────────────────────────── */
 function smithGradeUnlocked(grade) { return skillLv(state.smithing.charId, "대장일") >= SMITHING.grade_unlock_by_level[grade]; }
 function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level); }
-function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat")); }   // 제작 무용담 재료 -%
+function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat") + relationshipBonus("craft_mat")); }   // 제작 무용담 + 관계(도리) 재료 -%
 // 레시피: 부위 기본재료 × 등급배수 × 제작무용담. 전설은 전설재료 추가.
 function smithRecipe(part, grade) {
   const out = {}; const base = SMITHING.base_mat_by_part[part], mult = SMITHING.qty_mult_by_grade[grade], cm = craftMatMult();
@@ -1301,6 +1448,7 @@ function hasSmithMaterials(part, grade) { const r = smithRecipe(part, grade); fo
 function craftSeconds(grade) { return (SMITHING.craft_time_h_by_grade[grade] * 3600 / TIME_SCALE) / (1 + smithSpeedBonus(state.smithing.charId)); }
 // 품질(등급업 확률) = 장인 술통(SSOT) + 망치꾼 클래스 + 제작 드래곤 펫 (합산)
 function qualityUpgradeChance() {
+  if (cloakSmithGuaranteed()) return 1.0;   // 대장장이 앞치마: +1등급 보장(0.95 캡 오버라이드)
   let q = kingdomBonus("quality");
   const sm = state.smithing.charId;
   if (sm && CHARACTERS[sm].class === "망치꾼") q += SMITHING.quality.망치꾼_class_bonus;
@@ -1343,7 +1491,7 @@ function setSmithGrade(grade) { if (SMITHING.grades.indexOf(grade) >= 0) { state
 /* ── 원정(파견) 엔진 (t30) ────────────────────────────────────────────────── */
 function expSpeedBonus(charId) { return Math.min(EXPEDITION.speed_cap, (skillLv(charId, "원정") - 1) * EXPEDITION.speed_per_level); }
 function garmaTimeMult() { return petEquippedMerc(EXPEDITION.garma_pet) ? (1 - EXPEDITION.garma_time_reduction) : 1; }   // 원정 군마 -20%
-function expeditionRewardMult() { return 1 + kingdomBonus("discovery"); }   // 원정 무용담·모험 술통(보상량↑)
+function expeditionRewardMult() { return 1 + kingdomBonus("discovery") + cloakBonus("discovery"); }   // 원정 무용담·모험 술통 + 망토(원정가)
 function expDispatchUnlocked(d) { return skillLv(state.expedition.charId, "원정") >= d.reqLv; }
 function expDuration(d) { return (d.duration_h * 3600 / TIME_SCALE) / (1 + expSpeedBonus(state.expedition.charId)) * garmaTimeMult(); }
 function startExpedition() {
@@ -1408,8 +1556,13 @@ function tick(dtSec) {
   tickCook(dtSec);         // 안주 제조(요리 슬롯)
   tickSmith(dtSec);        // 장비 제작(대장일 슬롯)
   tickExpedition(dtSec);   // 원정 파견 복귀 정산
+  tickDistillery(dtSec);   // 자동 증류탑: 등록 샘플의 시간당 무료 자동 산출
   tickCustomers(dtSec);    // 만족도 게이지 수렴 + 진상 처리 (폴링 전에 게이지 갱신)
+  tickCredit(dtSec);       // 외상 장부 회수 → 자금 전환(셀라 ×2)
+  tickPromo(dtSec);        // 소문내기 배치 → 명성/h
+  tickRelationship(dtSec); // 배치 근무 용병 친분 누적 → 관계 Lv.3/5 보상
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
+  checkCloakUnlocks();     // 트랙 Lv.99 → 명예의 망토 자동 획득(폴링)
 }
 
 /* ── 의뢰 게시판 엔진 ──────────────────────────────────────────────────────── */
@@ -1542,7 +1695,8 @@ function tickGathering(dtSec) {
     for (const mat in yields) {
       if (lv < (yields[mat].unlock_lv || 1)) continue;  // 조달 레벨 < 재료 unlock_lv → 미해금(생산 안 함)
       const baseAdd = yields[mat].rate_per_h * gameH * mult * wm;
-      const next = (state.materials[mat] || 0) + baseAdd * gm;
+      const luck = RARE_MATERIALS.has(mat) ? (1 + luckBonus()) : 1;   // t31 희귀 재료만 행운 배수
+      const next = (state.materials[mat] || 0) + baseAdd * gm * cloakGatherMult() * luck;   // 망토(조달왕) ×1.3 + 희귀 행운 — 산출만, XP는 base
       state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
       units += baseAdd;   // XP 베이스는 getter 전(획득 XP getter는 addSkillXp에서 별도 적용)
       if (actId === "사냥") state.huntGathered = (state.huntGathered || 0) + baseAdd;   // 사냥 재료 누적(펫 임계)
@@ -1581,7 +1735,9 @@ function tickBrewSlots(dtSec) {
         break;
       }
       state.drinks[id] = (state.drinks[id] || 0) + 1;
-      addSkillXp(slot.charId, "양조", brewingXpForLevel(skillLv(slot.charId, "양조")));  // 양조 XP 적립
+      // 망토(술도사 앞치마): 30% 확률로 +1병(창고 여유분 한정)
+      if (Math.random() < cloakBrewDoubleChance() && (state.drinks[id] || 0) < STOCK_MAX) state.drinks[id]++;
+      addSkillXp(slot.charId, "양조", brewingXpForLevel(skillLv(slot.charId, "양조")));  // 양조 XP 적립(추가 병은 XP 미포함)
       slot.progressSec -= oneBottleSec;
     }
   }
@@ -1762,11 +1918,22 @@ function load() {
     if (typeof sv.lastDailyDay === "number") state.events.lastDailyDay = Math.max(0, Math.floor(sv.lastDailyDay));
     if (sv.special && typeof sv.special === "object") for (const k in state.events.special) { const r = sv.special[k] && sv.special[k].remainDays; if (typeof r === "number") state.events.special[k].remainDays = Math.max(0, Math.floor(r)); }
     if (sv.titles && typeof sv.titles === "object") for (const t in sv.titles) if (sv.titles[t]) state.events.titles[t] = true;
+    // t31 야간·축제 복원
+    state.events.isNight = !!sv.isNight;
+    if (typeof sv.nightTimerSec === "number") state.events.nightTimerSec = Math.max(0, sv.nightTimerSec);
+    if (typeof sv.nightCount === "number") state.events.nightCount = Math.max(0, Math.floor(sv.nightCount));
+    if (sv.festival && typeof sv.festival === "object") {
+      state.events.festival.active = !!sv.festival.active;
+      if (typeof sv.festival.remainingSec === "number") state.events.festival.remainingSec = Math.max(0, sv.festival.remainingSec);
+      if (typeof sv.festival.count === "number") state.events.festival.count = Math.max(0, Math.floor(sv.festival.count));
+    }
   }
 
   // 손님·만족도·진상 복원 (구형 세이브엔 없으므로 기본값 유지)
   if (typeof saved.satisfaction === "number") state.satisfaction = clampSat(saved.satisfaction);
   if (saved.serveAssign && CHARACTERS[saved.serveAssign]) state.serveAssign = saved.serveAssign;
+  if (saved.promoAssign && CHARACTERS[saved.promoAssign]) state.promoAssign = saved.promoAssign;
+  if (typeof saved.promoHours === "number") state.promoHours = Math.max(0, saved.promoHours);
   if (saved.customerServes && typeof saved.customerServes === "object") for (const t in saved.customerServes) { if (CUSTOMERS.types[t] && typeof saved.customerServes[t] === "number") state.customerServes[t] = Math.max(0, Math.floor(saved.customerServes[t])); }
   if (saved.nuisance && typeof saved.nuisance === "object") { state.nuisance.active = !!saved.nuisance.active; state.nuisance.timerSec = typeof saved.nuisance.timerSec === "number" ? Math.max(0, saved.nuisance.timerSec) : 0; }
 
@@ -1794,7 +1961,38 @@ function load() {
     if (typeof ex.totalSec === "number") state.expedition.totalSec = Math.max(0, ex.totalSec);
     if (typeof ex.completedCount === "number") state.expedition.completedCount = Math.max(0, Math.floor(ex.completedCount));
   }
+  if (saved.distillery && typeof saved.distillery === "object") {
+    const dv = saved.distillery;
+    if (typeof dv.level === "number") state.distillery.level = Math.max(0, Math.min(DISTILLERY.max_level, Math.floor(dv.level)));
+    syncDistillerySlots();   // 레벨에 맞춰 슬롯 배열 크기 확보
+    if (Array.isArray(dv.slots)) {
+      for (let i = 0; i < state.distillery.slots.length; i++) {
+        const s = dv.slots[i];
+        if (!s || typeof s !== "object" || !s.key) continue;
+        const validKey = s.kind === "material" ? !!DIST_MAT_TO_ACT[s.key] : (s.kind === "drink" && !!DRINKS[s.key]);
+        if (validKey && typeof s.rate === "number" && s.rate > 0)
+          state.distillery.slots[i] = { kind: s.kind, key: s.key, rate: s.rate, by: s.by || "?", acc: typeof s.acc === "number" ? Math.max(0, s.acc) : 0 };
+      }
+    }
+  }
+  if (saved.alchemy && typeof saved.alchemy === "object" && saved.alchemy.bubbles && typeof saved.alchemy.bubbles === "object") {
+    for (const id in saved.alchemy.bubbles) {
+      if (!BUBBLE_BY_ID[id]) continue;                         // 미존재/보류 거품 무시
+      const lv = saved.alchemy.bubbles[id];
+      if (typeof lv === "number" && lv > 0) state.alchemy.bubbles[id] = Math.floor(lv);
+    }
+  }
+  if (saved.cloaks && typeof saved.cloaks === "object" && saved.cloaks.owned && typeof saved.cloaks.owned === "object") {
+    for (const track in saved.cloaks.owned) if (CLOAK_BY_TRACK[track] && saved.cloaks.owned[track]) state.cloaks.owned[track] = true;
+  }
+  if (saved.alliances && typeof saved.alliances === "object" && saved.alliances.formed && typeof saved.alliances.formed === "object") {
+    for (const f in saved.alliances.formed) if (ALLIANCE_BY_FACTION[f] && saved.alliances.formed[f]) state.alliances.formed[f] = true;
+  }
   if (typeof saved.huntGathered === "number") state.huntGathered = Math.max(0, saved.huntGathered);
+  if (typeof saved.creditLedger === "number") state.creditLedger = Math.max(0, saved.creditLedger);
+  if (saved.relationships && typeof saved.relationships === "object") {
+    for (const id in saved.relationships) if (CHARACTERS[id] && typeof saved.relationships[id] === "number") state.relationships[id] = Math.max(0, saved.relationships[id]);
+  }
   if (typeof saved.offlineTotalH === "number") state.offlineTotalH = Math.max(0, saved.offlineTotalH);
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
@@ -1814,13 +2012,16 @@ function load() {
   if (realSec < 1) return;
   state.offlineTotalH = (state.offlineTotalH || 0) + realSec / 3600;   // 오프라인 누적(끈기 거북 임계 100h)
   const cappedSec = Math.min(realSec, OFFLINE_HARDCAP_H * 3600);
-  const productiveSec = Math.min(cappedSec, OFFLINE_BASE_H * 3600);
+  // 생산 정지점(BASE) = 24h + 오프라인 연장(영업 무용담·시간 거품, 분→시간), 36h 하드캡 클리핑.
+  const baseH = Math.min(OFFLINE_HARDCAP_H, OFFLINE_BASE_H + offlineExtendHours());
+  const productiveSec = Math.min(cappedSec, baseH * 3600);
   const productiveH = productiveSec / 3600;
   let efficiency = 1.0;
   if (productiveH > OFFLINE_FULL_H) {
-    const t = (productiveH - OFFLINE_FULL_H) / (OFFLINE_BASE_H - OFFLINE_FULL_H);
+    const t = (productiveH - OFFLINE_FULL_H) / (baseH - OFFLINE_FULL_H);
     efficiency = OFFLINE_EFF_HIGH - t * (OFFLINE_EFF_HIGH - OFFLINE_EFF_LOW);
   }
+  efficiency = Math.min(1.0, efficiency * (1 + offlineEffBonus()));   // 끈기 거북 오프라인 효율 +%
   const effectiveSec = productiveSec * efficiency;
 
   // 정산 전후 비교(전체 술 병수 / 전체 재료량)
@@ -1837,7 +2038,7 @@ function load() {
   const mins = Math.floor(realSec / 60), effPct = Math.round(efficiency * 100);
   // 실제로 생산이 인정되는 상한 시간 = 생산 정지 시점(24h)과 하드캡(36h) 중 먼저 걸리는 쪽.
   // 현재는 BASE(24h)가 항상 먼저라 24h가 표시됨. 연장 시스템으로 BASE가 늘면 자동으로 36h 표기.
-  const prodCapH = Math.min(OFFLINE_BASE_H, OFFLINE_HARDCAP_H);
+  const prodCapH = Math.round(baseH);
   const note = realSec > prodCapH * 3600 ? ` (${prodCapH}시간 이후는 정지)` : "";
   const brewPart = made > 0 ? ` · 술 ${made}병 양조` : "";
   const gatherPart = gathered > 0 ? ` · 재료 ${gathered}개 채집` : "";
@@ -2059,8 +2260,8 @@ function renderSkills() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult(); }   // 75% x1.5 × 90% x1.15 × 축제 x1.5 × 음유시인 x2 (곱 누적)
-function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain")) * getterMult(); }   // 90% 전 획득 x1.15
+function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain") + cauldronBonus("rep_gain") + relationshipBonus("rep_gain") + equippedPetBonusAll("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult(); }   // + 가마솥(입소문) + 관계(마라) + 소문 참새(장착)
+function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain") + cauldronBonus("funds_gain") + allianceBonus("funds_gain")) * getterMult(); }   // + 가마솥(황금) + 동맹(상인 연합)
 function doServe() {
   const a = REP_ACTIONS.serve; let rep = 0, funds = 0;
   for (let i = 0; i < a.per; i++) { const r = serveOne(); rep += r.rep; funds += r.funds; }   // 1명씩(종류 추첨·만족도 배수·보상)
@@ -2154,6 +2355,149 @@ function updateExpLive() {
   const e = state.expedition; if (!e.active) return;
   const bar = box.querySelector(".exp-bar"); if (bar) bar.style.width = Math.max(0, Math.min(100, (1 - e.remainingSec / e.totalSec) * 100)) + "%";
   const st = box.querySelector(".exp-status"); if (st) st.textContent = fmtDur(e.remainingSec) + " 남음";
+}
+/* ── 자동 증류탑 렌더 (distillery.js 로직 사용) ──────────────────────────────── */
+function distMercOptionsHtml() {
+  let html = `<option value="">(용병 선택)</option>`;
+  Object.keys(CHARACTERS).forEach(id => { if (!isRecruited(id) || isInjured(id)) return; html += `<option value="${id}">${CHARACTERS[id].name}</option>`; });
+  return html;
+}
+function distResourceOptionsHtml() {
+  let mats = "", seen = {};
+  for (const act in GATHERING) for (const mat in GATHERING[act].yields) { if (seen[mat]) continue; seen[mat] = 1; mats += `<option value="material:${mat}">${mat}</option>`; }
+  let drk = "";
+  for (const id in DRINKS) drk += `<option value="drink:${id}">${DRINKS[id].name}</option>`;
+  return `<optgroup label="재료">${mats}</optgroup><optgroup label="술">${drk}</optgroup>`;
+}
+function renderDistillery() {
+  const box = document.getElementById("ui-distillery"); if (!box) return;
+  const d = state.distillery;
+  // 미해금(주점 4단계 미만)
+  if (state.tavernStage < DISTILLERY.unlock_stage_min) {
+    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 주점 4단계(World 3 · 요새 주점 · 명성 5000) 도달 시 해금됩니다.</div>`;
+    return;
+  }
+  // 미건립
+  if (d.level < 1) {
+    const c = DISTILLERY_LV[1].cost;
+    box.innerHTML = `<div class="gather-sub">이미 생산 중인 자원을 <b>샘플</b>로 떠서 매시간 자동 생산합니다. 원재료·용병을 소비하지 않습니다.</div>
+      <div class="gather-sub" style="margin-top:4px">건립 비용: ${distCostText(c)}</div>
+      <div style="margin-top:6px"><button class="dist-build"${distCanPay(c) ? "" : " disabled"}>증류탑 건립</button></div>`;
+    const b = box.querySelector(".dist-build"); if (b) b.onclick = buildDistillery;
+    return;
+  }
+  // 건립됨
+  const ratio = distillerySampleRatio();
+  let html = `<div class="gather-sub">증류탑 <b>Lv.${d.level}</b> · 슬롯 ${d.slots.length}칸 · 샘플 비율 <b>${Math.round(ratio * 100)}%</b> / ${Math.round(DISTILLERY.sample_ratio_cap * 100)}%</div>`;
+  d.slots.forEach((slot, i) => {
+    const active = !!(slot && slot.rate > 0);
+    let cur;
+    if (slot) {
+      const nm = slot.kind === "drink" ? (DRINKS[slot.key] ? DRINKS[slot.key].name : slot.key) : slot.key;
+      const capped = slot.kind === "material" ? (state.materials[slot.key] || 0) >= MAT_CAP : (state.drinks[slot.key] || 0) >= STOCK_MAX;
+      cur = `${nm} <b>${(slot.rate * ratio).toFixed(1)}/h</b> <span style="color:#80766a">(샘플 ${slot.rate.toFixed(1)}/h · ${slot.by})${capped ? " · 창고 가득 정지" : ""}</span>`;
+    } else cur = `<span style="color:#80766a">빈 슬롯 — 샘플 미등록</span>`;
+    html += `<div class="slot-row${active ? " active" : ""}"><div class="slot-head"><span class="slot-name">슬롯 ${i + 1}</span><span class="slot-status">${cur}</span></div>
+      <div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <select class="dist-merc">${distMercOptionsHtml()}</select>
+        <select class="dist-res">${distResourceOptionsHtml()}</select>
+        <button class="dist-take" data-i="${i}">채취</button>
+        ${slot ? `<button class="dist-clear" data-i="${i}">비우기</button>` : ""}
+      </div></div>`;
+  });
+  const next = DISTILLERY_LV[d.level + 1];
+  if (next) {
+    const gateOk = state.tavernStage >= next.stage_min, payOk = distCanPay(next.cost);
+    const label = !gateOk ? `Lv.${next.lv} 증설 — 주점 ${next.stage_min}단계 필요` : `Lv.${next.lv} 증설 (${distCostText(next.cost)})`;
+    html += `<div style="margin-top:6px"><button class="dist-up"${gateOk && payOk ? "" : " disabled"}>${label}</button></div>`;
+  } else {
+    html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">최대 레벨(6) 달성 · 90% 상한은 보류 시스템(샘플링 숙련·무용담·펫 등) 도입 후</div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll(".dist-take").forEach(b => b.onclick = () => {
+    const row = b.closest(".slot-row");
+    const cid = row.querySelector(".dist-merc").value, rv = row.querySelector(".dist-res").value;
+    const ci = rv.indexOf(":");
+    takeSample(+b.dataset.i, cid, rv.slice(0, ci), rv.slice(ci + 1));
+  });
+  box.querySelectorAll(".dist-clear").forEach(b => b.onclick = () => clearSample(+b.dataset.i));
+  const up = box.querySelector(".dist-up"); if (up) up.onclick = upgradeDistillery;
+}
+/* ── 비밀 양조 가마솥 렌더 (alchemy.js 로직 사용) ────────────────────────────── */
+function renderAlchemy() {
+  const box = document.getElementById("ui-alchemy"); if (!box) return;
+  if (state.tavernStage < 3) {   // 첫 가마솥(전투·조달) = 주점 3단계(World 2)
+    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 주점 3단계(World 2 · 길드 주점) 도달 시 첫 가마솥(전투·조달)이 열립니다.</div>`;
+    return;
+  }
+  let html = "";
+  ALCHEMY.cauldrons.forEach(c => {
+    const bubbles = ALCHEMY.bubbles.filter(b => b.cauldron === c.color);
+    if (!bubbles.length) return;   // 게시된 거품이 없는 가마솥(전부 보류)이면 생략
+    const unlocked = alchemyCauldronUnlocked(c.color);
+    html += `<div class="gather-sub" style="margin:8px 0 4px"><b>${c.icon} ${c.domain} 가마솥</b>${unlocked ? "" : ` <span style="color:#80766a">🔒 주점 ${c.stage_min}단계 해금</span>`}</div>`;
+    if (!unlocked) return;
+    bubbles.forEach(b => {
+      const lv = bubbleLevel(b.id), cost = bubbleCost(b, lv), payOk = bubbleCanPay(cost);
+      const eff = lv > 0 ? bubbleEffectText(b, lv) : "미발동";
+      html += `<div class="slot-row${lv > 0 ? " active" : ""}"><div class="slot-head"><span class="slot-name">${b.id} 거품 Lv.${lv}</span><span class="slot-status">${b.effect} ${eff}</span></div>
+        <div class="gather-sub" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <span style="color:#80766a">다음 Lv: ${alchemyCostText(cost)}</span>
+          <button class="alc-up" data-id="${b.id}"${payOk ? "" : " disabled"}>레벨업</button>
+        </div></div>`;
+    });
+  });
+  box.innerHTML = html;
+  box.querySelectorAll(".alc-up").forEach(btn => btn.onclick = () => levelUpBubble(btn.dataset.id));
+}
+/* ── 명예의 망토 렌더 (cloaks.js 로직 사용) ─────────────────────────────────── */
+function renderCloaks() {
+  const box = document.getElementById("ui-cloaks"); if (!box) return;
+  let html = "";
+  CLOAKS.list.forEach(c => {
+    const owned = cloakOwned(c.track);
+    let best = 0, bestName = "";
+    Object.keys(CHARACTERS).forEach(id => { if (!isRecruited(id)) return; const lv = skillLv(id, c.track); if (lv > best) { best = lv; bestName = CHARACTERS[id].name; } });
+    const status = owned ? `✅ 획득 · ${c.effect}` : `🔒 ${c.track} Lv.${best}/99${bestName ? ` (${bestName})` : ""}`;
+    html += `<div class="slot-row${owned ? " active" : ""}"><div class="slot-head"><span class="slot-name">${c.name}</span><span class="slot-status">${status}</span></div></div>`;
+  });
+  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">전설 승급·만능 망토는 보류(마스터리 시스템 대기).</div>`;
+  box.innerHTML = html;
+}
+/* ── 동맹 렌더 (alliances.js 로직 사용) ─────────────────────────────────────── */
+function renderAlliances() {
+  const box = document.getElementById("ui-alliances"); if (!box) return;
+  if (!alliancesUnlocked()) {
+    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 명성 ${ALLIANCES.unlock_reputation}(유명 길드 주점) 도달 시 열립니다. 현재 ${Math.floor(state.reputation || 0)}</div>`;
+    return;
+  }
+  let html = `<div class="gather-sub">동맹 ${allianceFormedCount()}/${ALLIANCES.list.length} 체결</div>`;
+  ALLIANCES.list.forEach(a => {
+    const formed = allianceFormed(a.faction), met = allianceCondMet(a);
+    let status, btn = "";
+    if (formed) status = `✅ 체결 · ${a.effect}`;
+    else if (met) { status = `체결 가능 · ${a.effect}`; btn = `<button class="ally-form" data-f="${a.faction}">동맹 체결</button>`; }
+    else status = `🔒 ${a.condText} · ${a.effect}`;
+    html += `<div class="slot-row${formed ? " active" : ""}"><div class="slot-head"><span class="slot-name">${a.faction}</span><span class="slot-status">${status}</span></div>${btn ? `<div class="gather-sub" style="margin-top:4px">${btn}</div>` : ""}</div>`;
+  });
+  box.innerHTML = html;
+  box.querySelectorAll(".ally-form").forEach(b => b.onclick = () => formAlliance(b.dataset.f));
+}
+/* ── 용병 관계 렌더 (relationship.js 로직 사용) ─────────────────────────────── */
+function renderRelationships() {
+  const box = document.getElementById("ui-relationship"); if (!box) return;
+  let html = "";
+  for (const id in RELATIONSHIP.milestones) {
+    if (!CHARACTERS[id] || !isRecruited(id)) continue;
+    const lv = relLevel(id), m = RELATIONSHIP.milestones[id];
+    const next = relNextThreshold(id), pts = Math.floor(relPoints(id));
+    const lv3 = lv >= 3 ? `<span style="color:#7fb069">✅ ${m.lv3.text}</span>` : `<span style="color:#80766a">Lv.3: ${m.lv3.text}</span>`;
+    const prog = next ? `${pts}/${next}h` : "MAX";
+    html += `<div class="slot-row${lv >= 3 ? " active" : ""}"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name} 관계 Lv.${lv}</span><span class="slot-status">${lv3} · 근무 ${prog}</span></div></div>`;
+  }
+  if (!html) html = `<div class="gather-sub" style="color:#80766a">영입된 용병을 작업에 배치하면 친분이 쌓입니다.</div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">진 Lv.5 → 충견 무사 펫. 그 외 Lv.5 서사 이벤트는 보류.</div>`;
+  box.innerHTML = html;
 }
 function smithCharOptions() {
   const cur = state.smithing.charId || "";
@@ -2262,6 +2606,26 @@ function serveAssignOptions() {
   });
   return html;
 }
+function promoAssignOptions() {
+  const cur = state.promoAssign || "";
+  let html = `<option value="">(소문내기 담당 비움)</option>`;
+  Object.keys(CHARACTERS).forEach(id => {
+    if (!isRecruited(id) || isInjured(id)) return;
+    if (id !== cur && !isCharFree(id)) return;
+    html += `<option value="${id}"${id === cur ? " selected" : ""}>${CHARACTERS[id].name}${id === "마라" ? " (약장수)" : ""}</option>`;
+  });
+  return html;
+}
+function renderPromo() {
+  const box = document.getElementById("ui-promo"); if (!box) return;
+  const sm = promoMerc();
+  const rateH = Math.round(PROMO_REP_PER_H * repGainMult());
+  let html = `<div class="gather-sub">${sm ? `📣 <b>${CHARACTERS[sm].name}</b> 소문내는 중 — 명성 +${rateH}/h` : "용병을 배치하면 시간당 명성을 법니다."}</div>`;
+  html += `<div style="margin-top:4px"><select class="promo-assign">${promoAssignOptions()}</select></div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">배치 누적 ${Math.floor(state.promoHours || 0)}h${(state.promoHours || 0) >= 50 || state.pets["소문 참새"] ? " · 🐾 소문 참새 조건 달성" : " / 50h → 소문 참새 펫"}</div>`;
+  box.innerHTML = html;
+  const pa = box.querySelector(".promo-assign"); if (pa) pa.onchange = () => assignPromo(pa.value);
+}
 function renderCustomers() {
   const box = document.getElementById("ui-customers"); if (!box) return;
   const s = Math.round(state.satisfaction), base = Math.round(satisfactionBaseline()), mult = satisfactionRepMult();
@@ -2271,6 +2635,9 @@ function renderCustomers() {
   html += `<div class="gather-sub" style="margin-top:3px">기준선 ${base} · 시간당 ±${SAT.drift_per_hour} 수렴${anyDrinkSoldOut() ? ` · <span style="color:#d96b6b">술 품절 -${SAT.dec.품절}/h</span>` : ""}</div>`;
   html += `<div class="gather-sub" style="margin:8px 0 4px">🤝 접객 담당 <span style="color:#80766a">(만족도 +/h · 진상 자동 대응)</span></div>`;
   html += `<select class="serve-assign">${serveAssignOptions()}</select>`;
+  { const sm = serveMerc(), sela = sm && CHARACTERS[sm].class === "해결사";
+    const rateH = Math.round(CREDIT.recover_rate_per_h * (sela ? CREDIT.sela_mult : 1) * (1 + creditRecoveryBonus()) * 100);
+    html += `<div class="gather-sub" style="margin-top:6px">💳 외상 장부 <b>${Math.round(state.creditLedger || 0).toLocaleString()}</b> <span style="color:#80766a">(접대 ${Math.round(CREDIT.accrual * 100)}% 이연 · 회수 ${rateH}%/h${sela ? " · 해결사 ×2" : ""})</span></div>`; }
   html += `<div class="gather-sub" style="margin:8px 0 4px">🍻 손님 종류 접대 (30명 → 단골)</div>`;
   html += `<div class="grid3">` + ["용병", "상인", "마법사"].map(t => { const n = state.customerServes[t] || 0, done = cardOwned(CUSTOMERS.card_link[t]); return `<div class="cell"><span class="k">${t}</span><span class="v" style="font-weight:normal;font-size:11px;color:${done ? "#7fb069" : "#80766a"}">${Math.min(n, 30)}/30${done ? " ✅" : ""}</span></div>`; }).join("") + `</div>`;
   if (state.nuisance.active) {
@@ -2297,9 +2664,21 @@ function renderEvents() {
   const act = ["대목", "마왕의외상", "음유시인"].filter(k => specialActive(k));
   if (act.length) html += `<div class="gather-sub" style="color:#c9a86a;margin-top:5px">` + act.map(k => `✨ <b>${k}</b> (${ev.special[k].remainDays}일 남음)`).join(" · ") + `</div>`;
   html += `<div class="gather-sub" style="margin-top:5px;color:#80766a">게임 ${ev.lastDailyDay}일차 · 다음 일일 이벤트 ${fmtDur(ev.dayTimerSec)}</div>`;
+  // t31 야간 위상
+  html += `<div class="gather-sub" style="margin-top:5px">${ev.isNight ? "🌙 밤" : "☀️ 낮"} <span style="color:#80766a">· ${ev.isNight ? "밤" : "낮"} ${fmtDur(ev.nightTimerSec)} 남음 · 밤 ${ev.nightCount || 0}회</span></div>`;
+  // t31 축제
+  const F = EVENTS.festival, f = ev.festival;
+  if (f.active) html += `<div class="gather-sub" style="color:#c97fb0;margin-top:4px">🎪 <b>축제 진행 중</b> — 접객 명성 ×${F.serve_rep_mult} · ${fmtDur(f.remainingSec)} 남음 (누적 ${f.count}회)</div>`;
+  else {
+    const drinkTotal = Object.values(state.drinks).reduce((a, b) => a + b, 0);
+    const can = state.reputation >= F.unlock_rep && state.funds >= F.cost.자금 && drinkTotal >= F.cost.drinks_any;
+    const label = state.reputation < F.unlock_rep ? `🎪 축제 (명성 ${F.unlock_rep} 필요)` : `🎪 축제 개최 (자금 ${F.cost.자금}·술 ${F.cost.drinks_any}병)`;
+    html += `<div style="margin-top:4px"><button class="fest-hold"${can ? "" : " disabled"}>${label}</button> <span class="gather-sub" style="color:#80766a">누적 ${f.count}회</span></div>`;
+  }
   const titles = Object.keys(ev.titles);
   if (titles.length) html += `<div class="gather-sub" style="color:#7fb069;margin-top:3px">🏅 칭호: ${titles.join(", ")}</div>`;
   box.innerHTML = html;
+  const fb = box.querySelector(".fest-hold"); if (fb) fb.onclick = holdFestival;
 }
 function renderKingdom() {
   const box = document.getElementById("ui-kingdom"); if (!box) return;
@@ -2701,6 +3080,7 @@ function render() {
   renderProgress();
   renderEvents();
   renderCustomers();
+  renderPromo();
   renderOrders();
   renderKingdom();
   renderCombat();
@@ -2714,6 +3094,11 @@ function render() {
   renderCooking();
   renderSmithing();
   renderExpedition();
+  renderDistillery();
+  renderAlchemy();
+  renderCloaks();
+  renderAlliances();
+  renderRelationships();
   renderSkills();
   renderDrinkStock();
   renderBuffs();
