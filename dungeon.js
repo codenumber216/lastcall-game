@@ -30,6 +30,14 @@ const DUNGEON = {
     floor: { funds_mult: 0.1, material: 2, material_types: 1 },       // round(rec×0.1/floors), 재료 2 (1종)
     boss:  { funds_mult: 0.5, material: 5, material_types: 2,         // round(rec×0.5), 재료 5 (1~2종)
              card: "모험가 단골", first_clear_guaranteed: true, repeat_rate: 0.10 },
+    // 장비 드롭률 (QA SSOT 확정 2026-07-04) — 보스 격퇴 시 set_piece·common 독립 롤. 등급별 확률.
+    //   자금·재료·카드는 보장, 장비만 확률(좌절 방지). 키 제한(3/일)이 페이싱이라 확률형 적정.
+    drop_rate: {
+      set_piece_by_grade: { 하급: 0.60, 중급: 0.45, 상급: 0.35 },   // 세트 1부위(랜덤 슬롯)
+      common_by_grade:    { 하급: 0.50, 중급: 0.45, 상급: 0.40 },   // 같은 등급 비세트 1개
+      clear50_set_bonus: 0.25,                                       // 50회+ → set_piece 확률 +0.25
+      prob_cap: 0.95
+    },
     material_pool_by_grade: {
       하급: ["광석", "나무껍질", "약초", "몬스터고기"],
       중급: ["꿀", "독버섯", "마석가루", "약수"],

@@ -24,15 +24,17 @@ const EQUIPMENT = {
   accessory_atk_by_grade: { 일반: 0.02, 고급: 0.035, 희귀: 0.05, 영웅: 0.065, 전설: 0.08 },   // 장신구 M_atk %
   shield_survive_by_grade: { 일반: 0.03, 고급: 0.05, 희귀: 0.07, 영웅: 0.09, 전설: 0.11 },   // 방패 피해감소(also_armor, 무기 전투력 ×0.6도 별도)
 
-  // 던전 세트 (dungeon_sets). 피스 효과 → 가산 그룹 매핑(명확한 것만, 불명확=g:null).
+  // 던전 세트 (dungeon_sets). 피스 효과 → 전부 가산 그룹 매핑(QA SSOT 확정 2026-07-04).
+  //   조건부 효과(언데드/보스/화염 특효)는 v1에서 무조건 combat_atk/survive로 근사(적 종족·속성 미모델).
+  //   라벨은 '실제 수치 (원안 플레이버)'로 표기해 오해 방지.
   sets: [
-    { name: "쥐꼬리 세트", dungeon: "하수도",     grade: "일반", pc2: { label: "사냥 +5%",      g: "gather_rate",   v: 0.05 }, pc4: { label: "채집 +10%",       g: "gather_rate",   v: 0.10 } },
-    { name: "거미줄 세트", dungeon: "거미 동굴",   grade: "고급", pc2: { label: "궁술 +5%",      g: "combat_atk",    v: 0.05 }, pc4: { label: "선제 사격 +30%",  g: null,            v: 0 } },
-    { name: "도적 세트",   dungeon: "도적 소굴",   grade: "고급", pc2: { label: "전투 드롭 +5%", g: null,            v: 0 },    pc4: { label: "함정 피해 +20%",  g: null,            v: 0 } },
-    { name: "망자 세트",   dungeon: "폐허 무덤",   grade: "희귀", pc2: { label: "마법 +8%",      g: "combat_atk",    v: 0.08 }, pc4: { label: "언데드 추가 피해", g: null,           v: 0 } },
-    { name: "용비늘 세트", dungeon: "용의 둥지",   grade: "영웅", pc2: { label: "방어 +10%",     g: "combat_survive", v: 0.10 }, pc4: { label: "화염 면역",       g: null,           v: 0 } },
-    { name: "마계 세트",   dungeon: "마계 입구",   grade: "영웅", pc2: { label: "전 전투력 +8%", g: "combat_atk",    v: 0.08 }, pc4: { label: "보스 추가 피해",  g: null,            v: 0 } },
-    { name: "마왕성 세트", dungeon: "마왕성 심층", grade: "전설", pc2: { label: "전 스킬 +5%",   g: "all_skill",     v: 0.05 }, pc4: { label: "전설 효과(최강)", g: null,            v: 0 } }
+    { name: "쥐꼬리 세트", dungeon: "하수도",     grade: "일반", pc2: { label: "조달 +5%",              g: "gather_rate",    v: 0.05 }, pc4: { label: "조달 +10%",              g: "gather_rate",    v: 0.10 } },
+    { name: "거미줄 세트", dungeon: "거미 동굴",   grade: "고급", pc2: { label: "전투력 +5% (궁술)",     g: "combat_atk",     v: 0.05 }, pc4: { label: "전투력 +12% (선제 사격)", g: "combat_atk",     v: 0.12 } },
+    { name: "도적 세트",   dungeon: "도적 소굴",   grade: "고급", pc2: { label: "전투력 +5% (전투 드롭)", g: "combat_atk",    v: 0.05 }, pc4: { label: "전투력 +12% (함정 피해)", g: "combat_atk",     v: 0.12 } },
+    { name: "망자 세트",   dungeon: "폐허 무덤",   grade: "희귀", pc2: { label: "전투력 +8% (마법)",     g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +15% (언데드 특효)", g: "combat_atk",   v: 0.15 } },
+    { name: "용비늘 세트", dungeon: "용의 둥지",   grade: "영웅", pc2: { label: "피해 감소 +10% (방어)", g: "combat_survive", v: 0.10 }, pc4: { label: "피해 감소 +15% (화염 면역)", g: "combat_survive", v: 0.15 } },
+    { name: "마계 세트",   dungeon: "마계 입구",   grade: "영웅", pc2: { label: "전투력 +8%",           g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +18% (보스 특효)", g: "combat_atk",     v: 0.18 } },
+    { name: "마왕성 세트", dungeon: "마왕성 심층", grade: "전설", pc2: { label: "전 스킬 +5%",          g: "all_skill",      v: 0.05 }, pc4: { label: "전 스킬 +10% (전설)",     g: "all_skill",      v: 0.10 } }
   ]
 };
 

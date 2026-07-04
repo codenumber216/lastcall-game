@@ -29,8 +29,9 @@ const KINGDOM = {
     "전설": { lv1: "x1.1", max: "x2.0", cost: { 전설홉: 3 },  target: "combat_atk" }     // 곱→가산(eff-1), +150% 클립
   },
 
-  // 술통(statues) — deferred(축제) 제외 11종 (장인=대장일·모험=원정 구현으로 해제). 왕의 술통 해금 기준 11종.
+  // 술통(statues) — 12종 전부 활성 (축제 술통=t31 축제 구현으로 해제). 왕의 술통 해금 기준 왕 제외 11종.
   statues: {
+    "축제의 술통": { lv1: "+10분", max: "+120분", cost: { 전설술: 10 }, target: "festival_duration" },   // t31: 축제 지속 +분(festivalDurationBonus)
     "양조의 술통": { lv1: "+3%", max: "+30%", cost: { 술: 500 },     target: "brew_speed" },
     "장인의 술통": { lv1: "+4%", max: "+35%", cost: { 철: 500 },     target: "quality" },   // 제작 품질(등급업 확률) · 철→광석 alias
     "모험의 술통": { lv1: "+5%", max: "+40%", cost: { 유물: 100 },   target: "discovery" },   // 원정 발견(보상량↑)
