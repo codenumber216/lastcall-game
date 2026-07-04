@@ -1501,7 +1501,7 @@ function startExpedition() {
   if (!e.charId || !CHARACTERS[e.charId] || !isRecruited(e.charId)) { log("파견할 용병을 배치하세요."); render(); return; }
   if (isInjured(e.charId)) { log(`${CHARACTERS[e.charId].name}은(는) 부상 중입니다.`); render(); return; }
   if (skillLv(e.charId, "원정") < d.reqLv) { log(`${d.name}: 원정 Lv${d.reqLv} 필요 (현재 ${skillLv(e.charId, "원정")}).`); render(); return; }
-  if (assignedCharIds().has(e.charId)) { log(`${CHARACTERS[e.charId].name}은(는) 이미 다른 작업 중입니다.`); render(); return; }
+  if (state.dungeon.run && state.dungeon.party.includes(e.charId)) { log(`${CHARACTERS[e.charId].name}은(는) 던전 원정 중이라 파견할 수 없습니다.`); render(); return; }   // 던전 run만 자동 해제 불가 → 차단. 나머지(채집/양조/요리/대장일/접객)는 아래에서 자동 해제(던전 enterDungeon과 통일)
   // 파견 시작: 기존 배치 해제(1명=1작업)
   state.brewSlots.forEach(s => { if (s.charId === e.charId) s.charId = null; });
   for (const act in state.gatherAssign) if (state.gatherAssign[act] === e.charId) state.gatherAssign[act] = null;
