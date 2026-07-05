@@ -1,7 +1,7 @@
 /* ============================================================================
    Last Call — 단골 카드 & 펫 도감 데이터 (index.html에서 <script>로 로드)
    원본(SSOT): lastcall_balance_data.json 의 cards_and_pets
-   ※ 값/효과는 전부 SSOT. deferred(카드5·펫10)는 도감 슬롯 유지·드롭 비활성.
+   ※ 값/효과는 전부 SSOT. deferred(카드 0·펫 2=영주의 여우·콩이의 친구)는 도감 슬롯 유지·드롭 비활성.
    ※ g/v = 효과가 합산될 가산 그룹과 값(없는 시스템 대상=null, 도감 표시만).
      그룹: gather_rate·brew_speed(생산) / combat_atk·combat_survive(전투) /
            rep_gain·funds_gain / offline / all_skill / xp_조달·xp_all
@@ -82,7 +82,7 @@ const PETS = {
 };
 
 /* ── 도감 완성도 마일스톤 (SSOT completion_log.completion_basis / milestone_rule) ──
-   B 확정(2026-06-27): 분모 = '현재 획득 가능' 종 수(deferred 제외) = 단골 10 + 펫 15 = 25.
+   B 확정(2026-06-27): 분모 = '현재 획득 가능' 종 수(deferred 제외) = 카드 15 + 펫 23 = 38 (현행).
    완성도% = 보유 종 수 ÷ 획득가능 종 수 × 100 (항목 1개=1 균등). 보유 판정: 카드 grade≥일반·펫 owned.
    보류 콘텐츠 해제 시 그 항목이 obtainable로 전환되며 분모·분자에 자동 합류(basis_total 재계산).
    마일스톤 보상은 도달 시 영구(%가 나중에 내려가도 회수 안 함) → state.domeMaxPct로 추적.
@@ -91,7 +91,7 @@ const PETS = {
    - getter_mult: '전 획득량(자금·명성·재료·XP 획득)' ×배수 — power 캡(전투+150%/생산+120%)과 별개(곱)
    - title: 코스메틱(게임 수치 영향 0). 값/효과는 전부 SSOT. */
 const COMPLETION = {
-  basis_total: CARDS.list.length + PETS.list.length, // 획득 가능분만: 10+15=25 (deferred 제외)
+  basis_total: CARDS.list.length + PETS.list.length, // 획득 가능분: 카드 15 + 펫 23 = 38 (deferred 제외, 값은 항상 실배열로 재계산)
   pet_slot_at: 0.50,
   milestones: [
     { p: 0.25, label: "전 스킬 XP +2%",                  xp_all: 0.02 },
