@@ -1796,8 +1796,9 @@ function load() {
     for (const k in inv) (k in DRINKS ? state.drinks : state.materials)[k] = inv[k];
   }
 
-  // 주점 단계 → 슬롯 수
-  state.tavernStage = Math.min(6, Math.max(1, saved.tavernStage || 1));
+  // 주점 단계 → 슬롯 수 (손상 세이브 방어: 비숫자/무한/NaN → 1단계 폴백)
+  const savedStage = Number(saved.tavernStage);
+  state.tavernStage = Math.min(6, Math.max(1, Number.isFinite(savedStage) ? Math.floor(savedStage) : 1));
   syncBrewSlots();
 
   // 발효 슬롯 복원 (신형). 술 id NFC 정규화.
@@ -1815,7 +1816,7 @@ function load() {
   } else if (saved.brewing && saved.brewing.drinkId) {
     // 구형 단일 brewing → 0번 슬롯의 술/진행도로 이관(용병은 미배치 상태로 일시정지)
     const did = saved.brewing.drinkId.normalize("NFC");
-    if (DRINKS[did]) { state.brewSlots[0].drinkId = did; state.brewSlots[0].progressSec = saved.brewing.progressSec || 0; }
+    if (DRINKS[did]) { state.brewSlots[0].drinkId = did; const ps = Number(saved.brewing.progressSec); state.brewSlots[0].progressSec = Number.isFinite(ps) ? Math.max(0, ps) : 0; }
   }
 
   // 채집 배치 복원 (신형). 구형 bool 토글(saved.gathering)은 용병 개념이 없어 폐기(미배치로 시작).
@@ -2013,7 +2014,8 @@ function load() {
 
   // 온보딩 복원: 세이브에 있으면 이어서, 없으면(=구형 세이브, 기존 플레이어) 튜토리얼 스킵
   if (saved.onboarding) {
-    state.onboarding = { step: saved.onboarding.step || 1, done: !!saved.onboarding.done };
+    const savedStep = Number(saved.onboarding.step);   // 손상 세이브 방어: 비숫자 → 1
+    state.onboarding = { step: Number.isFinite(savedStep) ? Math.max(1, Math.floor(savedStep)) : 1, done: !!saved.onboarding.done };
     // 구 8스텝 세이브 → 신 7스텝: 전투 대비(구5) 제거로 6 이상 스텝은 -1
     if (state.onboarding.step >= 6) state.onboarding.step -= 1;
   } else {
