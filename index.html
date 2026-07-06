@@ -78,6 +78,10 @@
 
   /* ── 온보딩(첫 진입 튜토리얼) 오버레이 ── */
   .ob-highlight { box-shadow: 0 0 0 2px #c9853d, 0 0 18px #c9853d99 !important; border-color: #c9853d !important; }
+  /* 온보딩 중 비튜토리얼 대형 카드는 한 줄 요약으로 접어 정보 과부하·스크롤 축소 */
+  .card.ob-collapsed > :not(.label) { display: none; }
+  .card.ob-collapsed { opacity: 0.55; padding-top: 10px; padding-bottom: 10px; }
+  .card.ob-collapsed .label::after { content: " · 🔒 튜토리얼 후 이용"; font-weight: normal; font-size: 11px; color: #80766a; }
   #ob-overlay { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; pointer-events: none; }
   .ob-banner {
     pointer-events: auto; max-width: 480px; margin: 0 auto;
@@ -2975,11 +2979,18 @@ function showSticker(key, hold = 2400) {
 }
 function obHighlight(targetId) {
   document.querySelectorAll(".ob-highlight").forEach(e => e.classList.remove("ob-highlight"));
-  if (targetId) { const el = document.getElementById(targetId); if (el) el.classList.add("ob-highlight"); }
+  if (targetId) { const el = document.getElementById(targetId); if (el) { el.classList.add("ob-highlight"); el.scrollIntoView({ behavior: "smooth", block: "center" }); } }   // 스텝 변화 때만 호출 → 대상 카드로 자동 스크롤
+}
+// 온보딩 중 접을 비튜토리얼 대형/상시 카드(튜토리얼 대상: 성장·채집·발효·버프 + 코어는 유지)
+const OB_COLLAPSE_CARDS = ["card-events", "card-customers", "card-promo", "card-kingdom", "card-orders", "card-combat", "card-dungeon", "card-equipment", "card-cardspets", "card-cooking", "card-smithing", "card-expedition", "card-distillery", "card-alchemy", "card-cloaks", "card-alliances", "card-relationship"];
+function applyOnboardingLayout() {
+  const collapsing = !!(state.onboarding && !state.onboarding.done);
+  OB_COLLAPSE_CARDS.forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle("ob-collapsed", collapsing); });
 }
 let obRenderedKey = null;   // 마지막으로 그린 온보딩 상태키 — 같으면 재작성 skip(모달 스크롤 보존)
 function renderOnboarding() {
   const ob = state.onboarding, host = document.getElementById("ob-overlay");
+  applyOnboardingLayout();   // 온보딩 중 대형 카드 접기(완료 시 자동 해제) — 매 프레임 idempotent toggle
   if (!ob || ob.done) { if (obRenderedKey !== "done") { host.innerHTML = ""; obHighlight(null); obRenderedKey = "done"; } return; }
 
   // 게이트 충족 → 다음 스텝 (연쇄 대비 재귀) — 매 프레임 평가하되 DOM은 스텝 변화 때만 재작성
