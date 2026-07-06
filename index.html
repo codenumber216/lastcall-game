@@ -367,8 +367,20 @@ const CREDIT = { accrual: 0.20, recover_rate_per_h: 0.15, sela_mult: 2.0 };
 // 소문내기 활동: 배치 용병 1명 → 명성/h (reputation.gain_actions.소문내기_활동.per_hour_base=15). 소문 참새 펫 게이트=배치 50h.
 const PROMO_REP_PER_H = 15;
 
-// ⚙️ 개발용 시간 배속 (출시 때 1로): 3600초 ÷ 1200 = 3초마다 1병(1시간짜리·보너스 0 기준)
-const TIME_SCALE = 1200;
+// ⚙️ 시간 배속 — 출시/플레이테스트 = 1(실시간, 1게임시간=1실시간). 경제·오프라인 체감 평가는 이 값으로.
+//   dev 디버그 가속(1200: 3초=1게임시간)은 플래그로만 활성:
+//     · URL 쿼리 ?dev (또는 ?fast) 붙이면 켜지고 localStorage에 저장
+//     · URL ?nodev 로 끄기. 재방문 시 저장된 플래그 유지
+const DEV_TIME_SCALE = 1200;
+const DEV_MODE = (() => {
+  try {
+    const q = (location.search || "").toLowerCase();
+    if (q.indexOf("nodev") >= 0) { localStorage.removeItem("lastcall_dev"); return false; }
+    if (q.indexOf("dev") >= 0 || q.indexOf("fast") >= 0) { localStorage.setItem("lastcall_dev", "1"); return true; }
+    return localStorage.getItem("lastcall_dev") === "1";
+  } catch (e) { return false; }
+})();
+const TIME_SCALE = DEV_MODE ? DEV_TIME_SCALE : 1;
 
 
 /* ── ② 게임 상태 ──────────────────────────────────────────────────────────
@@ -3249,6 +3261,8 @@ document.getElementById("btn-reset").onclick = () => {
 
 
 /* ── 게임 부팅 ──────────────────────────────────────────────────────────── */
+console.log(`Last Call — TIME_SCALE ${TIME_SCALE} (${DEV_MODE ? "DEV 가속" : "출시/실시간"}). dev 켜기: URL에 ?dev`);
+if (!DEV_MODE) { const dv = document.querySelector(".dev"); if (dv) dv.style.display = "none"; }   // 릴리스/플레이테스트 빌드: 개발 도구 숨김(?dev 로 노출)
 load();
 if (!state.orders.active.length) state.orders.active = generateOrders();   // 새 게임(세이브 없음) 시 첫 의뢰 생성
 render();
