@@ -570,7 +570,7 @@ function grantCard(name) {
   state.cards[name] = (state.cards[name] || 0) + 1;
   if (!had) {
     log(`🃏 단골 카드 획득: ${name} — ${CARD_BY_ID[name].effect}`); needsFullRender = true;
-    CARDS.sets.forEach(set => { if (set.cards.includes(name) && setComplete(set)) log(`🎴 세트 완성: ${set.name} (${groupEffLabel(set.g, set.v)})`); });
+    CARDS.sets.forEach(set => { if (set.cards.includes(name) && setComplete(set)) log(`🎴 세트 완성: ${set.name} (${set.label || groupEffLabel(set.g, set.v)})`); });
     updateDomeMax();
   }
   return !had;
@@ -1507,7 +1507,7 @@ function setSmithGrade(grade) { if (SMITHING.grades.indexOf(grade) >= 0) { state
 /* ── 원정(파견) 엔진 (t30) ────────────────────────────────────────────────── */
 function expSpeedBonus(charId) { return Math.min(EXPEDITION.speed_cap, (skillLv(charId, "원정") - 1) * EXPEDITION.speed_per_level); }
 function garmaTimeMult() { return petEquippedMerc(EXPEDITION.garma_pet) ? (1 - EXPEDITION.garma_time_reduction) : 1; }   // 원정 군마 -20%
-function expeditionRewardMult() { return 1 + kingdomBonus("discovery") + cloakBonus("discovery"); }   // 원정 무용담·모험 술통 + 망토(원정가)
+function expeditionRewardMult() { return 1 + kingdomBonus("discovery") + cloakBonus("discovery") + cardPetAccountBonus("discovery"); }   // 원정 무용담·모험 술통 + 망토 + 모험가 단골(discovery)
 function expDispatchUnlocked(d) { return skillLv(state.expedition.charId, "원정") >= d.reqLv; }
 function expDuration(d) { return (d.duration_h * 3600 / TIME_SCALE) / (1 + expSpeedBonus(state.expedition.charId)) * garmaTimeMult(); }
 function startExpedition() {
@@ -2761,7 +2761,7 @@ function renderCardsPets() {
   html += `<div class="gather-sub" style="margin:10px 0 6px">🎴 세트 보너스</div>`;
   html += CARDS.sets.map(set => {
     const done = setComplete(set), miss = set.cards.filter(c => !cardOwned(c));
-    return `<div class="slot-row${done ? " active" : ""}"><div class="slot-head"><span class="slot-name">${set.name}${done ? " ✅" : ""}</span><span class="slot-status" style="font-size:11px">${groupEffLabel(set.g, set.v)} · ${done ? "발동 중" : `미완성(${miss.join(", ")})`}</span></div></div>`;
+    return `<div class="slot-row${done ? " active" : ""}"><div class="slot-head"><span class="slot-name">${set.name}${done ? " ✅" : ""}</span><span class="slot-status" style="font-size:11px">${set.label || groupEffLabel(set.g, set.v)} · ${done ? "발동 중" : `미완성(${miss.join(", ")})`}</span></div></div>`;
   }).join("");
   // ── 펫 도감
   const cnt = petOwnedCount(), next = PETS.collection.find(m => cnt < m.n);

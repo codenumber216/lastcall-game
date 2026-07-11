@@ -15,28 +15,28 @@ const CARDS = {
   list: [
     // 손님 단골(구현 8)
     { id: "술꾼 단골", kind: "손님", effect: "술 매출 +3%",   g: "funds_gain", v: 0.03, gate: { type: "satisfaction_gauge", v: 75 } }, // t27: 만족도 게이지 75 도달(보너스합 우회 폐지·원안 복귀)
-    { id: "귀족 단골", kind: "손님", effect: "고급 의뢰 +1",  g: null, v: 0, gate: { type: "tavernStage", v: 5 } },
-    { id: "모험가 단골", kind: "손님", effect: "원정 발견 +5%", g: null, v: 0, gate: { type: "dungeon_boss" } }, // 던전 보스 클리어로 획득(폴링 대상 아님)
+    { id: "귀족 단골", kind: "손님", effect: "고급 의뢰 +1 (예정)",  g: null, v: 0, gate: { type: "tavernStage", v: 5 } }, // 의뢰 티어/슬롯 조작 미모델 → (예정)
+    { id: "모험가 단골", kind: "손님", effect: "원정 발견 +5%", g: "discovery", v: 0.05, gate: { type: "dungeon_boss" } }, // 던전 보스 클리어 획득 · discovery(expeditionRewardMult)
     { id: "음유시인 단골", kind: "손님", effect: "명성 획득 +5%", g: "rep_gain", v: 0.05, gate: { type: "음유시인_이벤트" } }, // 음유시인 특별 이벤트로 획득
     { id: "용병 단골",   kind: "손님", effect: "검술 XP +3%",  g: "xp_전투", v: 0.03, gate: { type: "customer_type", customer: "용병" } },   // 용병 손님 30명 접대
     { id: "상인 단골",   kind: "손님", effect: "자금 획득 +4%", g: "funds_gain", v: 0.04, gate: { type: "customer_type", customer: "상인" } }, // 상인 손님 30명 접대
     { id: "마법사 단골", kind: "손님", effect: "마법 XP +4%",  g: "xp_전투", v: 0.04, gate: { type: "customer_type", customer: "마법사" } }, // 마법사 손님 30명 접대
     { id: "마왕 단골", kind: "손님", effect: "전 매출 +5%",   g: "funds_gain", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     // 적 카드(구현 7) — raid 티어 격퇴 시 base_rate(피티) 드롭
-    { id: "좀도둑 카드",   kind: "적", effect: "함정 피해 +3%",  g: null, v: 0,    gate: { type: "raidTier", tier: 1, base_rate: 0.25 } },
-    { id: "도적단 카드",   kind: "적", effect: "전투 드롭 +4%",  g: null, v: 0,    gate: { type: "raidTier", tier: 2, base_rate: 0.22 } },
+    { id: "좀도둑 카드",   kind: "적", effect: "전투력 +3% (함정 피해)",  g: "combat_atk", v: 0.03, gate: { type: "raidTier", tier: 1, base_rate: 0.25 } },
+    { id: "도적단 카드",   kind: "적", effect: "전투력 +4% (전투 드롭)",  g: "combat_atk", v: 0.04, gate: { type: "raidTier", tier: 2, base_rate: 0.22 } },
     { id: "고블린 카드",   kind: "적", effect: "사냥 XP +5%",    g: "xp_조달", v: 0.05, gate: { type: "raidTier", tier: 3, base_rate: 0.20 } },
     { id: "오크 카드",     kind: "적", effect: "근접 피해 +5%",  g: "combat_atk", v: 0.05, gate: { type: "raidTier", tier: 3, base_rate: 0.18 } },
     { id: "용병깡패 카드", kind: "적", effect: "방어술 XP +4%",  g: "xp_전투", v: 0.04, gate: { type: "raidTier", tier: 4, base_rate: 0.18 } },
     { id: "자칭영주 카드", kind: "적", effect: "명성 획득 +5%",  g: "rep_gain", v: 0.05, gate: { type: "raidTier", tier: 5, base_rate: 0.30 } },
-    { id: "마왕군 카드",   kind: "적", effect: "보스 드롭 +8%",  g: null, v: 0,    gate: { type: "raidTier", tier: 6, base_rate: 0.50 } }
+    { id: "마왕군 카드",   kind: "적", effect: "보스 드롭 +8% (예정)",  g: null, v: 0,    gate: { type: "raidTier", tier: 6, base_rate: 0.50 } } // 드롭률 개별 가산 미연결 → (예정)
   ],
   // 세트(전부 보유 시 발동). 일부는 deferred 카드 포함 → 현재 미완성.
   sets: [
     { name: "단골 정예", cards: ["술꾼 단골", "용병 단골", "상인 단골", "마법사 단골"], g: "funds_gain", v: 0.08 },
     { name: "주점 전설", cards: ["음유시인 단골", "귀족 단골", "모험가 단골", "마왕 단골"], g: "rep_gain", v: 0.10 },
-    { name: "도적 토벌", cards: ["좀도둑 카드", "도적단 카드", "고블린 카드", "오크 카드"], g: null, v: 0 },
-    { name: "영웅의 증명", cards: ["용병깡패 카드", "자칭영주 카드", "마왕군 카드", "모험가 단골"], g: null, v: 0 },
+    { name: "도적 토벌", cards: ["좀도둑 카드", "도적단 카드", "고블린 카드", "오크 카드"], g: "combat_atk", v: 0.08, label: "전투력 +8% (전투 드롭)" },
+    { name: "영웅의 증명", cards: ["용병깡패 카드", "자칭영주 카드", "마왕군 카드", "모험가 단골"], g: null, v: 0, label: "보스 드롭 +15% (예정)" },
     { name: "왕국의 위엄", cards: ["마왕 단골", "마왕군 카드", "귀족 단골", "음유시인 단골"], g: "xp_all", v: 0.05 }
   ],
   // deferred 카드(획득 불가, 도감 슬롯 유지) — 개수 15 맞춤. 손님 종류 시스템(t27)으로 전부 해제
@@ -57,16 +57,16 @@ const PETS = {
     { id: "사냥 늑대",   specialty: "사냥", effect: "사냥 획득량 +12%", g: "gather_rate", v: 0.12, gate: { type: "gather_count", threshold: 1000 } }, // 사냥 재료 누적 1000개
     { id: "채집 다람쥐", specialty: "채집", effect: "채집 속도 +12%",   g: "gather_rate", v: 0.12, gate: { type: "skill", skill: "조달", lv: 99 } },
     { id: "벌목 비버",   specialty: "벌목", effect: "목재 획득 +15%",   g: "gather_rate", v: 0.15, gate: { type: "skill", skill: "조달", lv: 50 } },
-    { id: "낚시 수달",   specialty: "낚시", effect: "희귀 어종 +15%",   g: null, v: 0,            gate: { type: "skill", skill: "조달", lv: 50 } },
+    { id: "낚시 수달",   specialty: "낚시", effect: "낚시 산출 +15% (희귀 어종)", g: "gather_rate", v: 0.15, gate: { type: "skill", skill: "조달", lv: 50 } },
     { id: "농사 황소",   specialty: "농사", effect: "작물 성장 -15%",   g: "gather_rate", v: 0.15, gate: { type: "skill", skill: "조달", lv: 50 } },
     { id: "양조 두꺼비", specialty: "양조", effect: "발효 시간 -15%",   g: "brew_speed", v: 0.15, gate: { type: "skill", skill: "양조", lv: 99 } },
     { id: "검술 호랑이", specialty: "검술", effect: "근접 피해 +10%",   g: "combat_atk", v: 0.10, gate: { type: "skill", skill: "전투", lv: 60 } },
     { id: "궁술 매",     specialty: "궁술", effect: "원거리 피해 +10%", g: "combat_atk", v: 0.10, gate: { type: "clears", n: 50 } },
     { id: "마법 와이번", specialty: "마법", effect: "마법 피해 +15%",   g: "combat_atk", v: 0.15, gate: { type: "skill", skill: "전투", lv: 99 } },
     { id: "방패 고슴도치", specialty: "방어", effect: "습격 피해 -5%",  g: "combat_survive", v: 0.05, gate: { type: "skill", skill: "전투", lv: 70 } },
-    { id: "함정 거미",   specialty: "함정", effect: "함정 피해 +20%",   g: null, v: 0,            gate: { type: "skill", skill: "전투", lv: 60 } },
+    { id: "함정 거미",   specialty: "함정", effect: "전투력 +20% (함정 피해)", g: "combat_atk", v: 0.20, gate: { type: "skill", skill: "전투", lv: 60 } },
     { id: "끈기 거북",   specialty: "범용", effect: "오프라인 효율 +5%", g: "offline", v: 0.05, gate: { type: "offline_total", threshold_h: 100 } }, // 오프라인 누적 100시간 · v=0.05(효율 +5%p, applyOffline 소비)
-    { id: "황금 꿀벌",   specialty: "양조", effect: "술 재료 +20%",     g: null, v: 0,            gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } },
+    { id: "황금 꿀벌",   specialty: "양조", effect: "술 재료 +20% (예정)", g: null, v: 0,            gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } }, // 양조 재료 절감 그룹 미존재 → (예정)
     { id: "원정 군마",   specialty: "원정", effect: "원정 시간 -20%",   g: null, v: 0, gate: { type: "expedition_count", n: 30 } }, // t30: 원정 30회 완료. 시간 -20% 코드 특수 연결
     { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     { id: "접객 고양이", specialty: "접객", effect: "손님 만족 +8%",   g: null, v: 0, gate: { type: "satisfaction_gauge", v: 90 } }, // t27: 만족도 게이지 90 → baseline +8(코드 특수 연결)
