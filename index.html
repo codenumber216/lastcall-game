@@ -296,6 +296,7 @@
   <button id="btn-smith">[개발] 대장일 Lv99+금속</button>
   <button id="btn-exp">[개발] 원정 Lv99+30회</button>
   <button id="btn-pacing">[개발] 페이싱 무시: OFF</button>
+  <button id="btn-story">[개발] 스토리 리셋</button>
   <button id="btn-reset">[개발] 저장 초기화</button>
   <div>마지막 저장: <span id="ui-saved"></span></div>
 </div>
@@ -304,6 +305,8 @@
 <div id="ob-overlay"></div>
 <!-- 시스템 인트로 오버레이(신규 카드 해금 1스텝 소개) — 온보딩 모달 UI 재활용 -->
 <div id="intro-overlay"></div>
+<!-- 본편 서사 비트(B1~B6) 오버레이 — 온보딩 모달/코믹 UI 재활용, 인트로보다 우선(z 위) -->
+<div id="story-overlay"></div>
 
 <!-- ① 데이터: 술·채집·용병·발효설정을 별도 파일에서 불러옵니다.
      스크립트 태그는 file:// 더블클릭에서도 막히지 않으므로 서버가 필요 없습니다. -->
@@ -445,6 +448,8 @@ function freshState() {
     offlineTotalH: 0,         // 오프라인 누적 시간(끈기 거북 펫 임계 100h)
     onboarding: { step: 1, done: false },  // 첫 진입 튜토리얼(스텝 1~6, step7=졸업컷)
     introSeen: {},            // 시스템 인트로 표시 완료 { card-id: true } (1회만)
+    story: { seen: {}, flags: {} },   // 본편 서사 비트(B1~B6) 표시 기록 + 서사 플래그
+    kingdomName: "",          // 엔딩(B6) 영지 작명
     lastSaved: Date.now()
   };
 }
@@ -1545,6 +1550,8 @@ function resolveExpedition() {
   e.completedCount = (e.completedCount || 0) + 1;
   e.active = false; e.remainingSec = 0;
   log(`🧭 원정 '${d.name}' 복귀 (${e.completedCount}회) — ${txt}.`);
+  // B1.5 마왕성 정찰 복선(로그 토스트, 1회)
+  if (d.reward.story && !state.story.seen["B1.5"]) { state.story.seen["B1.5"] = true; log("🗣️ 셀라: \"마왕성 소문을 하나 물어왔어. …곧 우리 술 마시러 온다는데.\""); }
   needsFullRender = true;
 }
 function tickExpedition(dtSec) {
@@ -2028,6 +2035,11 @@ function load() {
     state.onboarding = { step: 1, done: true };
   }
   if (saved.introSeen && typeof saved.introSeen === "object") for (const k in saved.introSeen) if (saved.introSeen[k]) state.introSeen[k] = true;   // 시스템 인트로 1회 표시 기록
+  if (saved.story && typeof saved.story === "object") {   // 본편 서사 비트 기록·플래그
+    if (saved.story.seen && typeof saved.story.seen === "object") for (const k in saved.story.seen) if (saved.story.seen[k]) state.story.seen[k] = true;
+    if (saved.story.flags && typeof saved.story.flags === "object") for (const k in saved.story.flags) if (saved.story.flags[k]) state.story.flags[k] = true;
+  }
+  if (typeof saved.kingdomName === "string") state.kingdomName = saved.kingdomName.slice(0, 30);
 
   reconcileAssignments();   // 중복/유령/부상 배치 정리 + 채집 슬롯 상한
   state.lastSaved = saved.lastSaved || Date.now();
@@ -2971,6 +2983,13 @@ const OB_PORTRAIT = {
   "플레이어": "art/player.png",
   "진":     "art/jin.png",
   "보리":   "art/bori.png",
+  "마라":   "art/mara.png",
+  "셀라":   "art/sella.png",
+  "콩이":   "art/kongi.png",
+  "도리":   "art/dori.png",
+  "집사":   "art/lord.png",
+  "영주":   "art/lord.png",
+  "마왕":   "art/demon.png",
 };
 function obFace(who) {
   return OB_PORTRAIT[who] ? `<img class="ob-face" src="${OB_PORTRAIT[who]}" alt="${who}">` : "";
@@ -3051,6 +3070,66 @@ function renderIntro() {
   host.innerHTML = `<div class="ob-modal-bg"><div class="ob-modal"><div class="ob-step">✨ 새 시스템 해금 · ${name}</div>
     <div class="ob-line ob-narr">${g.text}</div><button id="intro-btn">확인</button></div></div>`;
   document.getElementById("intro-btn").onclick = () => { state.introSeen[introActive] = true; introActive = null; save(); render(); };
+}
+
+/* ── 본편 서사 비트(t32 B1~B6) ─────────────────────────────────────────────
+   온보딩 종료 후 폴링. 게이트 충족·미표시 비트를 1회 표시(seen), 닫을 때 onFire. 코믹/초상화 모달 재사용. */
+const ENDING_PETS = {
+  "영주의 여우": { id: "영주의 여우", specialty: "엔딩", effect: "명성·자금 획득 +15%", g: "funds_gain", v: 0.15, gate: { type: "ending" } },
+  "콩이의 친구": { id: "콩이의 친구", specialty: "엔딩", effect: "마법 XP +20%", g: "xp_전투", v: 0.20, gate: { type: "ending" } }
+};
+function endingUnlock() {
+  Object.keys(ENDING_PETS).forEach(name => {
+    const i = PETS.deferred.indexOf(name); if (i >= 0) PETS.deferred.splice(i, 1);   // deferred→obtainable
+    if (!PET_BY_ID[name]) { PET_BY_ID[name] = ENDING_PETS[name]; PETS.list.push(ENDING_PETS[name]); }
+    grantPet(name);   // 즉시 지급(domeMaxPct가 마일스톤 영구 유지)
+  });
+  COMPLETION.basis_total = CARDS.list.length + PETS.list.length;   // 분모 재계산(펫 +2)
+  state.events.titles["왕국의 영주"] = true;   // 최종 칭호(코스메틱)
+}
+const STORY_BEATS = [
+  { id: "B1", gate: s => s.tavernStage >= 3, kind: "comic", comic: "art/comic_mara_join.png", title: "마라 합류",
+    lines: [["마라", "주점 매출 300% 상승 보장! …희망사항이에요."]] },
+  { id: "B2", gate: s => s.tavernStage >= 4, kind: "modal", title: "마라 — 이세계 바이럴",
+    lines: [["마라", "완성했어요! '전 대륙 입소문 전략'!"], ["진", "치트 능력이 그거였나."], ["마라", "트럭에 치인 보람 있죠?"]],
+    onFire: () => { state.events.titles["이세계 바이럴"] = true; } },
+  { id: "B3", gate: s => s.tavernStage >= 5, kind: "modal", title: "콩이 — 정체 떡밥",
+    lines: [["콩이", "<i>(눈이 빛나며 또렷이)</i> 아직은… 때가 아니야."], ["콩이", "<i>(다시)</i> 찍?"], ["진", "방금… 말했나?"]],
+    onFire: () => { state.story.flags.kongHint = true; } },
+  { id: "B4", gate: s => (s.combat.maxTierCleared || 0) >= 5, kind: "modal", title: "셀라 반전 — 진짜 영주",
+    lines: [["", "(자칭 영주 = 배신한 집사 등장)"], ["셀라", "오랜만이네, 집사."], ["집사", "여, 영주님?!"], ["셀라", "영지? 너 가져. 난 주점이 더 재밌어."]],
+    onFire: () => { state.story.flags.sellaLord = true; state.events.titles["외상 저승사자"] = true; } },
+  { id: "B5", gate: s => (s.combat.maxTierCleared || 0) >= 6, kind: "modal", title: "마왕 격퇴 — 클라이맥스",
+    lines: [["마왕", "정복하러… 근데 여기 술 맛있다며?"], ["셀라", "외상은 안 됩니다."], ["마왕", "…단골로 다니겠다."]] },
+  { id: "B6", gate: s => s.tavernStage >= 6 && (s.combat.maxTierCleared || 0) >= 6, kind: "ending", title: "엔딩 — 할머니 귀환·영주 계승",
+    lines: [["할머니", "외상 갚으랬더니 영지를 만들어놨네. …이제 네가 영주 해라."], ["마왕", "어이, 늘 마시던 걸로."]],
+    onFire: endingUnlock }
+];
+let storyActive = null, storyRenderedKey = null;
+function renderStory() {
+  const host = document.getElementById("story-overlay"); if (!host) return;
+  if (state.onboarding && !state.onboarding.done) { if (host.innerHTML) { host.innerHTML = ""; storyRenderedKey = null; storyActive = null; } return; }   // 온보딩 중 억제
+  if (!storyActive) { const b = STORY_BEATS.find(bt => !state.story.seen[bt.id] && bt.gate(state)); if (b) storyActive = b.id; }
+  const key = storyActive || "none";
+  if (key === storyRenderedKey) return;
+  storyRenderedKey = key;
+  if (!storyActive) { host.innerHTML = ""; return; }
+  const b = STORY_BEATS.find(bt => bt.id === storyActive);
+  const linesHtml = b.lines.map(([who, txt]) =>
+    who ? `<div class="ob-line">${obFace(who)}<div class="ob-text"><span class="ob-speaker">${who}</span>: ${txt}</div></div>`
+        : `<div class="ob-line ob-narr">${txt}</div>`).join("");
+  const comicHtml = b.kind === "comic" && b.comic ? `<img class="ob-comic" src="${b.comic}" alt="${b.title}">` : "";
+  const endingHtml = b.kind === "ending"
+    ? `<div class="ob-line ob-narr">영지의 이름을 지어주세요:</div><input id="story-kingdom" type="text" maxlength="20" placeholder="예: 취권도 왕국" value="${state.kingdomName || ""}" style="width:100%;box-sizing:border-box;padding:8px;margin:2px 0 10px;border-radius:8px;border:1px solid #6b4a2e;background:#1c150f;color:#e8dcc8">` : "";
+  host.innerHTML = `<div class="ob-modal-bg" style="z-index:1002"><div class="ob-modal">
+    <div class="ob-step">📖 ${b.title}</div>${comicHtml}${linesHtml}${endingHtml}
+    <button id="story-btn">${b.kind === "ending" ? "영주 계승" : "다음"}</button></div></div>`;
+  document.getElementById("story-btn").onclick = () => {
+    if (b.kind === "ending") { const nm = (document.getElementById("story-kingdom").value || "").trim(); state.kingdomName = nm || "이름 없는 영지"; }
+    state.story.seen[b.id] = true;
+    if (b.onFire) b.onFire();
+    storyActive = null; save(); render();
+  };
 }
 let obRenderedKey = null;   // 마지막으로 그린 온보딩 상태키 — 같으면 재작성 skip(모달 스크롤 보존)
 function renderOnboarding() {
@@ -3157,6 +3236,7 @@ function updateBuffLive() {
 // 실시간(1초) 루프용 경량 렌더: 셀렉트/모달/진행바 트랜지션을 보존하며 변하는 값만 갱신.
 function renderLive() {
   renderOnboarding();                              // 게이트 평가 + 스텝 바뀔 때만 오버레이 재작성
+  renderStory();                                   // 본편 서사 비트 폴링(단계/보스 게이트)
   if (needsFullRender && !aSelectIsOpen()) { render(); return; }  // 구조 변화는 드롭다운 안 열렸을 때 전체 반영
   // 셀렉트 없는 카드는 값 갱신 위해 다시 그려도 안전(상호작용 상태 없음)
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
@@ -3192,6 +3272,7 @@ function render() {
   renderDrinkStock();
   renderBuffs();
   renderOnboarding();   // 오버레이는 항상 마지막 (강조 대상 카드가 먼저 그려진 뒤)
+  renderStory();        // 본편 서사 비트(온보딩보다 뒤 = z 위)
 }
 
 function log(msg) {
@@ -3326,6 +3407,12 @@ document.getElementById("btn-exp").onclick = () => {
   state.materials["유물"] = (state.materials["유물"] || 0) + 300;
   checkCardPetUnlocks();
   log("[개발] 전 용병 원정 Lv99 + 원정 30회 + 유물 300.");
+  render();
+};
+// 개발용(QA): 스토리 비트 재표시용 리셋(seen·flags 초기화, 재발동 확인용)
+document.getElementById("btn-story").onclick = () => {
+  state.story = { seen: {}, flags: {} }; storyActive = null; storyRenderedKey = null;
+  log("[개발] 스토리 비트 seen/flags 리셋 — 게이트 충족분 다시 표시.");
   render();
 };
 // 개발용(QA): 노출 페이싱 무시 토글 — 켜면 A/B/C 무시하고 26카드 전부 즉시 노출
