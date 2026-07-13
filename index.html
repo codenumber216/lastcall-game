@@ -3103,7 +3103,15 @@ const STORY_BEATS = [
     lines: [["마왕", "정복하러… 근데 여기 술 맛있다며?"], ["셀라", "외상은 안 됩니다."], ["마왕", "…단골로 다니겠다."]] },
   { id: "B6", gate: s => s.tavernStage >= 6 && (s.combat.maxTierCleared || 0) >= 6, kind: "ending", title: "엔딩 — 할머니 귀환·영주 계승",
     lines: [["할머니", "외상 갚으랬더니 영지를 만들어놨네. …이제 네가 영주 해라."], ["마왕", "어이, 늘 마시던 걸로."]],
-    onFire: endingUnlock }
+    onFire: endingUnlock },
+  // 도감 100% 코다(엔딩과 별개 트리거·별개 연출). SSOT completion_log.100_coda_spec. B6 엔딩 후 완성주의자 도달.
+  { id: "CODA100", gate: () => domeReached() >= 1.0, kind: "modal", title: "도감 100% 완성", head: "🏅 도감 100% 완성",
+    lines: [
+      ["", "빈 잔 하나 없이, 빈 자리 하나 없이 — 모든 단골과 친구가 이 주점에 모였다."],
+      ["할머니", "이 정도면… 내 가게보다 낫네."],
+      ["", "칭호 '주점의 친구들' 획득"]
+    ],
+    onFire: () => { state.events.titles["주점의 친구들"] = true; } }
 ];
 let storyActive = null, storyRenderedKey = null;
 function renderStory() {
@@ -3122,7 +3130,7 @@ function renderStory() {
   const endingHtml = b.kind === "ending"
     ? `<div class="ob-line ob-narr">영지의 이름을 지어주세요:</div><input id="story-kingdom" type="text" maxlength="20" placeholder="예: 취권도 왕국" value="${state.kingdomName || ""}" style="width:100%;box-sizing:border-box;padding:8px;margin:2px 0 10px;border-radius:8px;border:1px solid #6b4a2e;background:#1c150f;color:#e8dcc8">` : "";
   host.innerHTML = `<div class="ob-modal-bg" style="z-index:1002"><div class="ob-modal">
-    <div class="ob-step">📖 ${b.title}</div>${comicHtml}${linesHtml}${endingHtml}
+    <div class="ob-step">${b.head || ("📖 " + b.title)}</div>${comicHtml}${linesHtml}${endingHtml}
     <button id="story-btn">${b.kind === "ending" ? "영주 계승" : "다음"}</button></div></div>`;
   document.getElementById("story-btn").onclick = () => {
     if (b.kind === "ending") { const nm = (document.getElementById("story-kingdom").value || "").trim(); state.kingdomName = nm || "이름 없는 영지"; }
