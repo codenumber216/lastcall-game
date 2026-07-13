@@ -3085,7 +3085,7 @@ function endingUnlock() {
     grantPet(name);   // 즉시 지급(domeMaxPct가 마일스톤 영구 유지)
   });
   COMPLETION.basis_total = CARDS.list.length + PETS.list.length;   // 분모 재계산(펫 +2)
-  state.events.titles["왕국의 영주"] = true;   // 최종 칭호(코스메틱)
+  state.events.titles["외상 왕국의 영주"] = true;   // B6 서사 엔딩 최종 칭호(코스메틱, 기획 확정). ※도감 100% 코다 '주점의 친구들'과 별개
 }
 const STORY_BEATS = [
   { id: "B1", gate: s => s.tavernStage >= 3, kind: "comic", comic: "art/comic_mara_join.png", title: "마라 합류",
