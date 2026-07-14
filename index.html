@@ -555,7 +555,7 @@ function cardPetAccountBonus(target) {
 function equippedPetBonus(charId, target) { let s = 0; (state.petEquip[charId] || []).forEach(n => { const p = PET_BY_ID[n]; if (p && p.g === target) s += p.v; }); return s; }
 function equippedPetBonusAll(target) { let s = 0; for (const id in CHARACTERS) s += equippedPetBonus(id, target); return s; }
 // XP 가속(카드·펫 도감 + 완성도 마일스톤): 스킬별 xp_조달/xp_전투 + 전역 xp_all
-function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp") + cauldronBonus("xp_all"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t) + relationshipBonus(t); return s; }
+function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp") + cauldronBonus("xp_all") + (drinkBuffOn("수련자의청주") ? 0.20 : 0); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t) + relationshipBonus(t); return s; }
 
 // 도감 완성도(SSOT completion_log.completion_basis): 보유 종 수 ÷ 획득 가능 종 수(deferred 제외).
 function domeOwnedCount() { return CARDS.list.filter(c => cardOwned(c.id)).length + petOwnedCount(); }  // 카드 grade≥일반·펫 owned
@@ -756,7 +756,7 @@ function addSkillXp(charId, skill, amount) {
 // 조달 스킬 레벨 보너스(가산): (조달Lv-1)×0.5%p, 캡 +120%
 function gatherSkillBonus(charId) {
   const b = (skillLv(charId, "조달") - 1) * SKILLS.rate_per_level
-    + kingdomBonus("gather_rate") + kingdomBonus("all_skill")
+    + kingdomBonus("gather_rate") + kingdomBonus("all_skill") + (drinkBuffOn("보리의정수") ? 0.25 : 0)
     + cardPetAccountBonus("gather_rate") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill")
     + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill")   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
@@ -770,7 +770,7 @@ function brewSpeedBonus(charId) {
   const c = CHARACTERS[charId];
   let b = (skillLv(charId, "양조") - 1) * FERMENTATION.brew_speed_per_level;
   if (c && c.brewmaster) b += FERMENTATION.brewmaster_passive_speed;
-  b += kingdomBonus("brew_speed") + kingdomBonus("all_skill")    // 양조 무용담·술통·왕의 술통
+  b += kingdomBonus("brew_speed") + kingdomBonus("all_skill") + (drinkBuffOn("보리의정수") ? 0.25 : 0)    // 양조 무용담·술통·왕의 술통
     + cardPetAccountBonus("brew_speed") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill")  // 양조 두꺼비 등
     + mercSetBonus(charId, "all_skill")   // 장비 세트(마왕성 전 스킬)
@@ -810,6 +810,7 @@ function reconcileAssignments() {
 function buffDurationSec(drink) { return drink.brewSeconds / TIME_SCALE; }
 // 어떤 술이 이미 활성인가 / 같은 계열이 활성인가 (중복·동계열 차단용)
 function isDrinkActive(drinkId) { return state.buffSlots.some(b => b && b.drinkId === drinkId); }
+function drinkBuffOn(id) { return state.buffSlots.some(b => b && !b.raid && b.drinkId === id); }
 function isSeriesActive(series, exceptSlot) {
   return state.buffSlots.some((b, i) => b && i !== exceptSlot && DRINKS[b.drinkId].series === series);
 }
@@ -859,7 +860,7 @@ function combatBuffTotals() {
 function combatAtkMult(ids) {
   ids = ids || [];
   let eq = 0; ids.forEach(id => eq += mercAccessoryAtk(id) + mercSetBonus(id, "combat_atk") + mercSetBonus(id, "all_skill"));
-  return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill")
+  return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill") + (drinkBuffOn("보리의정수") ? 0.25 : 0)
     + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
     + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk") + cauldronBonus("combat_atk") + cloakBonus("combat_atk") + allianceBonus("combat_atk") + relationshipBonus("combat_atk"));   // 비치 안주 + 가마솥 + 망토 + 동맹 + 관계(콩이)
 }
@@ -1264,7 +1265,7 @@ function clampSat(s) { return Math.max(SAT.min, Math.min(SAT.max, s)); }
 function satisfactionBaseline() {
   let petB = 0;
   for (const n in SAT.baseline_pet_bonus) if (petEquippedMerc(n)) petB += SAT.baseline_pet_bonus[n];   // ④ 접객 고양이 장착 → +8
-  return Math.min(100, 50 + kingdomBonus("satisfaction") * 50 + petB + snackBonus("satisfaction") + cauldronBonus("satisfaction") * 50);   // 비치 안주(만족도) + 가마솥(환대)
+  return Math.min(100, 50 + kingdomBonus("satisfaction") * 50 + petB + snackBonus("satisfaction") + cauldronBonus("satisfaction") * 50 + (drinkBuffOn("싸구려와인") ? 5 : 0));   // 비치 안주(만족도) + 가마솥(환대)
 }
 // 만족도 임계 → 접객 명성/자금 배수 (명성 getter, power 캡 별개)
 function satisfactionRepMult() { const s = state.satisfaction; for (const t of SAT.tiers) if (s <= t.max) return t.rep_mult; return 1; }
@@ -1550,8 +1551,8 @@ function resolveExpedition() {
   e.completedCount = (e.completedCount || 0) + 1;
   e.active = false; e.remainingSec = 0;
   log(`🧭 원정 '${d.name}' 복귀 (${e.completedCount}회) — ${txt}.`);
-  // B1.5 마왕성 정찰 복선(로그 토스트, 1회)
-  if (d.reward.story && !state.story.seen["B1.5"]) { state.story.seen["B1.5"] = true; log("🗣️ 셀라: \"마왕성 소문을 하나 물어왔어. …곧 우리 술 마시러 온다는데.\""); }
+  // B3 마왕성 정찰 복선(로그 토스트, 1회) — t32 §2 B3
+  if (d.reward.story && !state.story.seen["B3"]) { state.story.seen["B3"] = true; log("🗣️ 정찰 보고 — 마왕성까지 우리 술 소문이 났답니다. …마왕이 곧 마시러 온다는 흉흉한 얘기."); }
   needsFullRender = true;
 }
 function tickExpedition(dtSec) {
@@ -2297,7 +2298,7 @@ function renderSkills() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain") + cauldronBonus("rep_gain") + relationshipBonus("rep_gain") + equippedPetBonusAll("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult(); }   // + 가마솥(입소문) + 관계(마라) + 소문 참새(장착)
+function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain") + cauldronBonus("rep_gain") + relationshipBonus("rep_gain") + equippedPetBonusAll("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult() * (drinkBuffOn("왕국의축배") ? 2 : 1); }   // + 가마솥(입소문) + 관계(마라) + 소문 참새(장착)
 function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain") + cauldronBonus("funds_gain") + allianceBonus("funds_gain")) * getterMult(); }   // + 가마솥(황금) + 동맹(상인 연합)
 function doServe() {
   const a = REP_ACTIONS.serve; let rep = 0, funds = 0;
@@ -3087,22 +3088,42 @@ function endingUnlock() {
   COMPLETION.basis_total = CARDS.list.length + PETS.list.length;   // 분모 재계산(펫 +2)
   state.events.titles["외상 왕국의 영주"] = true;   // B6 서사 엔딩 최종 칭호(코스메틱, 기획 확정). ※도감 100% 코다 '주점의 친구들'과 별개
 }
+// 본편 서사 [v2 캐논, 2026-07-14] — 대사 전문 t32 §2. 선대(할머니)·당주(셀라)·후계(플레이어) 한 가문 단일선.
+//   B3 마왕성 정찰은 원정 복귀 토스트(resolveExpedition) — 큐 아님. 캐릭터 서사(B4·B5·B6)는 관계 Lv.5 트리거.
 const STORY_BEATS = [
-  { id: "B1", gate: s => s.tavernStage >= 3, kind: "comic", comic: "art/comic_mara_join.png", title: "마라 합류",
-    lines: [["마라", "주점 매출 300% 상승 보장! …희망사항이에요."]] },
-  { id: "B2", gate: s => s.tavernStage >= 4, kind: "modal", title: "마라 — 이세계 바이럴",
+  { id: "B1", gate: s => s.tavernStage >= 3, kind: "comic", comic: "art/comic_mara_join.png", title: "합류 ① 마라·도리", btn: "두 사람을 들인다",
+    lines: [["마라", "이세계에서 왔어요! 마케팅으로 이 주점, 대박 냅니다! (계약서 어딨죠?)"],
+            ["도리", "드워프 도리다. 명검? 됐고 — 세상 제일가는 술병따개를 만들지."]] },
+  { id: "B2", gate: s => s.tavernStage >= 4, kind: "modal", title: "합류 ② 셀라·콩이", btn: "두 사람을 들인다",
+    lines: [["셀라", "해결사 셀라. 외상값은 반드시 받아낸다. 우아하게."],
+            ["콩이", "찍! <i>(지팡이 든 햄스터)</i> 주문은 자주 까먹어도, 위력은 확실해."]] },
+  { id: "B4", gate: () => relLevel("마라") >= 5, kind: "modal", title: "마라 — 이세계 바이럴",
     lines: [["마라", "완성했어요! '전 대륙 입소문 전략'!"], ["진", "치트 능력이 그거였나."], ["마라", "트럭에 치인 보람 있죠?"]],
     onFire: () => { state.events.titles["이세계 바이럴"] = true; } },
-  { id: "B3", gate: s => s.tavernStage >= 5, kind: "modal", title: "콩이 — 정체 떡밥",
+  { id: "B5", gate: () => relLevel("콩이") >= 5, kind: "modal", title: "콩이 — 정체 떡밥",
     lines: [["콩이", "<i>(눈이 빛나며 또렷이)</i> 아직은… 때가 아니야."], ["콩이", "<i>(다시)</i> 찍?"], ["진", "방금… 말했나?"]],
     onFire: () => { state.story.flags.kongHint = true; } },
-  { id: "B4", gate: s => (s.combat.maxTierCleared || 0) >= 5, kind: "modal", title: "셀라 반전 — 진짜 영주",
-    lines: [["", "(자칭 영주 = 배신한 집사 등장)"], ["셀라", "오랜만이네, 집사."], ["집사", "여, 영주님?!"], ["셀라", "영지? 너 가져. 난 주점이 더 재밌어."]],
-    onFire: () => { state.story.flags.sellaLord = true; state.events.titles["외상 저승사자"] = true; } },
-  { id: "B5", gate: s => (s.combat.maxTierCleared || 0) >= 6, kind: "modal", title: "마왕 격퇴 — 클라이맥스",
-    lines: [["마왕", "정복하러… 근데 여기 술 맛있다며?"], ["셀라", "외상은 안 됩니다."], ["마왕", "…단골로 다니겠다."]] },
-  { id: "B6", gate: s => s.tavernStage >= 6 && (s.combat.maxTierCleared || 0) >= 6, kind: "ending", title: "엔딩 — 할머니 귀환·영주 계승",
-    lines: [["할머니", "외상 갚으랬더니 영지를 만들어놨네. …이제 네가 영주 해라."], ["마왕", "어이, 늘 마시던 걸로."]],
+  { id: "B6", gate: s => relLevel("셀라") >= 5 && s.tavernStage >= 4, kind: "modal", title: "셀라 반전 — 현 당주",
+    lines: [["", "(배신한 집사가 \"내가 영주다\" 쳐들어온다)"],
+            ["셀라", "오랜만이네, 집사. 내가 자리를 비운 사이 당주 행세라니."],
+            ["집사", "다, 당주님?! 잠행하신 줄로만…"],
+            ["셀라", "영지 운영이 지루해 맡겼더니 통째로 삼켰구나. 자리엔 관심 없어 — 근데 우리 주점 건드린 건 못 봐줘."],
+            ["진", "셀라… 네가 이 가문의 당주였어?"],
+            ["셀라", "선대 어른껜 비밀로. <i>(싱긋)</i>"]],
+    onFire: () => { state.story.flags.sellaLord = true; state.events.titles["잠행하는 당주"] = true; } },
+  { id: "B7", gate: s => (s.combat.maxTierCleared || 0) >= 6, kind: "modal", title: "마왕 격퇴 — 클라이맥스",
+    lines: [["마왕", "정복하러 왔다! …근데 여기 술 맛있다며?"], ["셀라", "외상은 안 됩니다."], ["마왕", "…단골로 다니겠다."]] },
+  { id: "B8", gate: s => s.tavernStage >= 6 && (s.combat.maxTierCleared || 0) >= 6, kind: "ending", title: "엔딩 — 할머니 귀환·후계 계승",
+    lines: [["할머니", "다녀왔다~ 외상 갚으랬더니 영지를 만들어놨네."],
+            ["할머니", "사실 내가 이 가문 선대 영주다. 은퇴하고 주점이나 하던 거였지."],
+            ["셀라", "…선대 어른. 오랜만이에요."],
+            ["할머니", "당주가 외상이나 받고 있을 줄이야. 셀라, 넌 영지로 안 돌아갈 거지?"],
+            ["셀라", "주점이 더 재밌어서요."],
+            ["할머니", "<i>(플레이어에게 인장)</i> 그럼 가문 이름으로 네가 후계다. 정식 영주."],
+            ["용병", "저… 영주 같은 거 몰라요."],
+            ["할머니", "나도 몰랐어. 그냥 하면 돼."],
+            ["진", "선대·당주·신임 영주가 한 주점에 다 모였군. …오늘도 평화롭다."],
+            ["마왕", "어이, 늘 마시던 걸로."], ["셀라", "외상은 안 됩니다."]],
     onFire: endingUnlock },
   // 도감 100% 코다(엔딩과 별개 트리거·별개 연출). SSOT completion_log.100_coda_spec. B6 엔딩 후 완성주의자 도달.
   { id: "CODA100", gate: () => domeReached() >= 1.0, kind: "modal", title: "도감 100% 완성", head: "🏅 도감 100% 완성",
@@ -3131,7 +3152,7 @@ function renderStory() {
     ? `<div class="ob-line ob-narr">영지의 이름을 지어주세요:</div><input id="story-kingdom" type="text" maxlength="20" placeholder="예: 취권도 왕국" value="${state.kingdomName || ""}" style="width:100%;box-sizing:border-box;padding:8px;margin:2px 0 10px;border-radius:8px;border:1px solid #6b4a2e;background:#1c150f;color:#e8dcc8">` : "";
   host.innerHTML = `<div class="ob-modal-bg" style="z-index:1002"><div class="ob-modal">
     <div class="ob-step">${b.head || ("📖 " + b.title)}</div>${comicHtml}${linesHtml}${endingHtml}
-    <button id="story-btn">${b.kind === "ending" ? "영주 계승" : "다음"}</button></div></div>`;
+    <button id="story-btn">${b.btn || (b.kind === "ending" ? "영주 계승" : "다음")}</button></div></div>`;
   document.getElementById("story-btn").onclick = () => {
     if (b.kind === "ending") { const nm = (document.getElementById("story-kingdom").value || "").trim(); state.kingdomName = nm || "이름 없는 영지"; }
     state.story.seen[b.id] = true;
