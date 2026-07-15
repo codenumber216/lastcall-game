@@ -794,7 +794,8 @@ function freshCombat() {
   };
 }
 // 장비 초기 상태: owned{장비id:보유수}, equipped{용병id:{무기,갑옷,투구,장신구}}
-function freshEquipment() { return { owned: {}, equipped: {} }; }
+function freshEquipment() { return { owned: {}, equipped: {}, setLegendary: {} }; }   // setLegendary: 세트 전설 변형(t26 §6.5, 던전 100회) { 세트명: true }
+function setLegendary(name) { return !!(state.equipment.setLegendary && state.equipment.setLegendary[name]); }
 // 이벤트 & 날씨 초기 상태
 function freshEvents() {
   return {
@@ -1229,6 +1230,13 @@ function resolveDungeonRun() {
     funds += Math.round(d.rec_power * DUNGEON.rewards.boss.funds_mult * rm);
     matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.boss.material * rm), DUNGEON.rewards.boss.material_types);
     state.dungeon.clears[d.name] = (state.dungeon.clears[d.name] || 0) + 1;
+    // 100회 클리어 → 그 던전 세트 전설 변형 자동 해금(t26 §6.5, 추가 비용 없음)
+    const sdefLegend = EQUIP_SET_BY_DUNGEON[d.name];
+    if (sdefLegend && !setLegendary(sdefLegend.name) && state.dungeon.clears[d.name] >= 100) {
+      state.equipment.setLegendary[sdefLegend.name] = true;
+      if (!settling) log(`⭐ ${sdefLegend.name} 전설 변형! (${d.name} 100회)`);
+      needsFullRender = true;
+    }
     const cardName = DUNGEON.rewards.boss.card;
     if (!cardOwned(cardName)) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 획득!`; }   // 첫 클리어 보장
     else if (Math.random() < DUNGEON.rewards.boss.repeat_rate) { grantCard(cardName); cardTxt = ` · 🃏 ${cardName} 중복`; }
@@ -1280,8 +1288,9 @@ function mercSetBonus(id, target) {
   let s = 0;
   EQUIPMENT.sets.forEach(set => {
     const c = counts[set.name] || 0;
-    if (c >= 2 && set.pc2.g === target) s += set.pc2.v;
-    if (c >= 4 && set.pc4.g === target) s += set.pc4.v;
+    const legend = setLegendary(set.name);   // 전설 변형(t26 §6.5): 그룹은 동일, 값만 legendary로 교체
+    if (c >= 2 && set.pc2.g === target) s += legend ? set.legendary.pc2 : set.pc2.v;
+    if (c >= 4 && set.pc4.g === target) s += legend ? set.legendary.pc4 : set.pc4.v;
   });
   return s;
 }
@@ -2091,6 +2100,9 @@ function load() {
       const slots = {};
       EQUIPMENT.slots.forEach(slot => { const iid = (se.equipped[mid][slot] || "").normalize("NFC"); if (EQUIP_BY_ID[iid] && EQUIP_BY_ID[iid].slot === slot && state.equipment.owned[iid]) slots[slot] = iid; });
       if (Object.keys(slots).length) state.equipment.equipped[mid] = slots;
+    }
+    if (se.setLegendary && typeof se.setLegendary === "object") {
+      for (const n in se.setLegendary) { const k = n.normalize("NFC"); if (EQUIPMENT.sets.some(s => s.name === k) && se.setLegendary[n]) state.equipment.setLegendary[k] = true; }
     }
   }
 
@@ -3046,7 +3058,10 @@ function renderEquipment() {
     const wp = Math.round(mercWeaponPower(id)), sv = Math.round(mercSurvive(id) * 100);
     const e = mercSlots(id), counts = {};
     EQUIPMENT.slots.forEach(s => { const it = EQUIP_BY_ID[e[s]]; if (it && it.kind === "set") counts[it.set] = (counts[it.set] || 0) + 1; });
-    const setTags = EQUIPMENT.sets.filter(s => (counts[s.name] || 0) >= 2).map(s => `${s.name.replace(" 세트", "")} ${counts[s.name] >= 4 ? "4pc" : "2pc"}`).join("·");
+    const setTags = EQUIPMENT.sets.filter(s => (counts[s.name] || 0) >= 2).map(s => {
+      const pc = counts[s.name] >= 4 ? "4pc" : "2pc";
+      return setLegendary(s.name) ? `⭐${s.name.replace(" 세트", "")} ${pc}(전설)` : `${s.name.replace(" 세트", "")} ${pc}`;
+    }).join("·");
     let sel = "";
     EQUIPMENT.slots.forEach(slot => sel += `<select class="eq-slot" data-m="${id}" data-slot="${slot}">${equipSlotOptions(id, slot)}</select> `);
     return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name}</span>
@@ -3101,6 +3116,8 @@ function renderDungeon() {
   html += `<div class="gather-sub" style="margin:10px 0 6px">🏰 던전</div>`;
   html += DUNGEON.list.map(d => {
     const clears = dg.clears[d.name] || 0, cost = dungeonKeyCost(d), unlocked = dungeonUnlocked(d);
+    const sdefTag = EQUIP_SET_BY_DUNGEON[d.name];
+    const legendTag = sdefTag ? (setLegendary(sdefTag.name) ? " · ⭐전설 변형" : ` · 전설변형 ${Math.min(clears, 100)}/100`) : "";
     let btn;
     if (!unlocked) btn = `<button disabled>🔒 마왕 격퇴 후</button>`;
     else if (weatherDungeonBlocked()) btn = `<button disabled>⛈️ 폭풍 — 원정 불가</button>`;
@@ -3110,7 +3127,7 @@ function renderDungeon() {
     else if (dg.keys < cost) btn = `<button disabled>열쇠 ${dg.keys}/${cost}</button>`;
     else btn = `<button class="dg-enter" data-name="${d.name}">입장 (열쇠 ${cost})</button>`;
     return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${d.name} <span style="color:var(--mute);font-weight:normal;font-size:11px">${d.floors}층·${d.grade}·${d.boss}</span></span>
-      <span class="slot-status" style="font-size:11px">추천 ${d.rec_power} · 클리어 ${clears}회${clears >= 10 ? " (+10%)" : ""}</span></div>${btn}</div>`;
+      <span class="slot-status" style="font-size:11px">추천 ${d.rec_power} · 클리어 ${clears}회${clears >= 10 ? " (+10%)" : ""}${legendTag}</span></div>${btn}</div>`;
   }).join("");
   if (dg.lastResult) html += `<div class="gather-sub" style="margin-top:6px">최근: ${dg.lastResult}</div>`;
   box.innerHTML = html;

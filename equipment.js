@@ -27,14 +27,16 @@ const EQUIPMENT = {
   // 던전 세트 (dungeon_sets). 피스 효과 → 전부 가산 그룹 매핑(QA SSOT 확정 2026-07-04).
   //   조건부 효과(언데드/보스/화염 특효)는 v1에서 무조건 combat_atk/survive로 근사(적 종족·속성 미모델).
   //   라벨은 '실제 수치 (원안 플레이버)'로 표기해 오해 방지.
+  //   legendary = 그 던전 100회 클리어 시 전설 변형(t26 §6.5, equipment.legendary_transform). base×~1.5.
+  //   mercSetBonus에서 setLegendary(세트명)이면 pc2/pc4 대신 이 값 사용(그룹 g 동일 → 전역 캡 그대로).
   sets: [
-    { name: "쥐꼬리 세트", dungeon: "하수도",     grade: "일반", pc2: { label: "조달 +5%",              g: "gather_rate",    v: 0.05 }, pc4: { label: "조달 +10%",              g: "gather_rate",    v: 0.10 } },
-    { name: "거미줄 세트", dungeon: "거미 동굴",   grade: "고급", pc2: { label: "전투력 +5% (궁술)",     g: "combat_atk",     v: 0.05 }, pc4: { label: "전투력 +12% (선제 사격)", g: "combat_atk",     v: 0.12 } },
-    { name: "도적 세트",   dungeon: "도적 소굴",   grade: "고급", pc2: { label: "전투력 +5% (전투 드롭)", g: "combat_atk",    v: 0.05 }, pc4: { label: "전투력 +12% (함정 피해)", g: "combat_atk",     v: 0.12 } },
-    { name: "망자 세트",   dungeon: "폐허 무덤",   grade: "희귀", pc2: { label: "전투력 +8% (마법)",     g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +15% (언데드 특효)", g: "combat_atk",   v: 0.15 } },
-    { name: "용비늘 세트", dungeon: "용의 둥지",   grade: "영웅", pc2: { label: "피해 감소 +10% (방어)", g: "combat_survive", v: 0.10 }, pc4: { label: "피해 감소 +15% (화염 면역)", g: "combat_survive", v: 0.15 } },
-    { name: "마계 세트",   dungeon: "마계 입구",   grade: "영웅", pc2: { label: "전투력 +8%",           g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +18% (보스 특효)", g: "combat_atk",     v: 0.18 } },
-    { name: "마왕성 세트", dungeon: "마왕성 심층", grade: "전설", pc2: { label: "전 스킬 +5%",          g: "all_skill",      v: 0.05 }, pc4: { label: "전 스킬 +10% (전설)",     g: "all_skill",      v: 0.10 } }
+    { name: "쥐꼬리 세트", dungeon: "하수도",     grade: "일반", pc2: { label: "조달 +5%",              g: "gather_rate",    v: 0.05 }, pc4: { label: "조달 +10%",              g: "gather_rate",    v: 0.10 }, legendary: { pc2: 0.08, pc4: 0.15 } },
+    { name: "거미줄 세트", dungeon: "거미 동굴",   grade: "고급", pc2: { label: "전투력 +5% (궁술)",     g: "combat_atk",     v: 0.05 }, pc4: { label: "전투력 +12% (선제 사격)", g: "combat_atk",     v: 0.12 }, legendary: { pc2: 0.08, pc4: 0.18 } },
+    { name: "도적 세트",   dungeon: "도적 소굴",   grade: "고급", pc2: { label: "전투력 +5% (전투 드롭)", g: "combat_atk",    v: 0.05 }, pc4: { label: "전투력 +12% (함정 피해)", g: "combat_atk",     v: 0.12 }, legendary: { pc2: 0.08, pc4: 0.18 } },
+    { name: "망자 세트",   dungeon: "폐허 무덤",   grade: "희귀", pc2: { label: "전투력 +8% (마법)",     g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +15% (언데드 특효)", g: "combat_atk",   v: 0.15 }, legendary: { pc2: 0.12, pc4: 0.22 } },
+    { name: "용비늘 세트", dungeon: "용의 둥지",   grade: "영웅", pc2: { label: "피해 감소 +10% (방어)", g: "combat_survive", v: 0.10 }, pc4: { label: "피해 감소 +15% (화염 면역)", g: "combat_survive", v: 0.15 }, legendary: { pc2: 0.15, pc4: 0.22 } },
+    { name: "마계 세트",   dungeon: "마계 입구",   grade: "영웅", pc2: { label: "전투력 +8%",           g: "combat_atk",     v: 0.08 }, pc4: { label: "전투력 +18% (보스 특효)", g: "combat_atk",     v: 0.18 }, legendary: { pc2: 0.12, pc4: 0.26 } },
+    { name: "마왕성 세트", dungeon: "마왕성 심층", grade: "전설", pc2: { label: "전 스킬 +5%",          g: "all_skill",      v: 0.05 }, pc4: { label: "전 스킬 +10% (전설)",     g: "all_skill",      v: 0.10 }, legendary: { pc2: 0.08, pc4: 0.15 } }
   ]
 };
 
