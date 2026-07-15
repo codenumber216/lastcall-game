@@ -48,6 +48,15 @@
     border-radius:20px;padding:6px 12px;font-weight:700;white-space:nowrap}
   .stat .v.gold{color:var(--gold)} .stat .v.rep{color:var(--good)}
 
+  /* ── 오디오 설정(t34 §3-5) ── */
+  .audio-ctl{display:flex;align-items:center;gap:8px;background:#00000038;border:1px solid var(--line);
+    border-radius:20px;padding:4px 12px 4px 8px}
+  .icon-btn{background:transparent;border:none;color:var(--ink);font-size:16px;padding:2px 4px;
+    margin:0;min-height:0;cursor:pointer}
+  .vol{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--mute)}
+  .vol input[type="range"]{width:56px;accent-color:var(--amber);cursor:pointer}
+  @media (max-width:480px){ .audio-ctl .vol{display:none} }
+
   /* ── 탭 바 ── */
   .tabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
   .tab{flex:1;min-width:70px;text-align:center;padding:10px 6px;border-radius:11px;cursor:pointer;
@@ -210,6 +219,11 @@
   <div class="spacer"></div>
   <div class="stat"><span>🪙</span><span class="v gold" id="tb-funds">0</span></div>
   <div class="stat"><span>⭐</span><span class="v rep" id="tb-rep">0</span></div>
+  <div class="audio-ctl" title="오디오 설정">
+    <button id="btn-mute" class="icon-btn" type="button">🔊</button>
+    <label class="vol">BGM<input id="vol-bgm" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    <label class="vol">SFX<input id="vol-sfx" type="range" min="0" max="1" step="0.05" value="0.7"></label>
+  </div>
 </div>
 
 <!-- ─────────── 탭 바(5탭 IA) ─────────── -->
@@ -548,6 +562,7 @@ function freshState() {
     introSeen: {},            // 시스템 인트로 표시 완료 { card-id: true } (1회만)
     story: { seen: {}, flags: {} },   // 본편 서사 비트(B1~B6) 표시 기록 + 서사 플래그
     kingdomName: "",          // 엔딩(B6) 영지 작명
+    settings: { audio: { muted: false, bgmVolume: 0.5, sfxVolume: 0.7 } },   // 오디오 설정(t34 §3-5)
     lastSaved: Date.now()
   };
 }
@@ -673,6 +688,7 @@ function grantCard(name) {
   state.cards[name] = (state.cards[name] || 0) + 1;
   if (!had) {
     log(`🃏 단골 카드 획득: ${name} — ${CARD_BY_ID[name].effect}`); needsFullRender = true;
+    playSfx("sfx_collection_get");
     CARDS.sets.forEach(set => { if (set.cards.includes(name) && setComplete(set)) log(`🎴 세트 완성: ${set.name} (${set.label || groupEffLabel(set.g, set.v)})`); });
     updateDomeMax();
   }
@@ -682,6 +698,7 @@ function grantPet(name) {
   if (!PET_BY_ID[name] || state.pets[name]) return false;
   state.pets[name] = true;
   log(`🐾 펫 획득: ${name} — ${PET_BY_ID[name].effect}`); needsFullRender = true;
+  playSfx("sfx_collection_get");
   updateDomeMax();
   return true;
 }
@@ -871,6 +888,7 @@ function addSkillXp(charId, skill, amount) {
     node.xp -= SKILLS.xpToNext(node.lv);
     node.lv++;
     log(`📈 ${CHARACTERS[charId].name} ${skill} Lv.${node.lv} 달성!`);
+    playSfx("sfx_levelup");
   }
   if (node.lv >= SKILLS.level_max) node.xp = 0;
 }
@@ -1048,6 +1066,7 @@ function resolveRaid() {
   const bossTier = state.combat.pendingBossTier || 0;   // 예약된 보스(4단계 자칭영주·6단계 마왕)면 강제 등장
   const tier = bossTier || pickTier();
   if (!tier) return;                          // 면제 단계(1단계 등)는 습격 없음
+  playSfx("sfx_raid_start"); playRaidStinger();   // 습격 판정 시작(t34 §1-1a, §3-3)
   const et = COMBAT.enemy_tiers[tier - 1], tag = `${bossTier ? "👑" : ""}[T${tier} ${et.name}${et.role ? " " + et.role : ""}]`;
   const ally = allyPower();
   const enemy = (et.power.min + Math.random() * (et.power.max - et.power.min)) * enemyPowerMult();
@@ -1064,10 +1083,12 @@ function resolveRaid() {
     raidCardPetDrops(tier);                  // 적 카드 드롭(피티) + raidTier 손님카드/펫
     state.combat.lastResult = `${tag} ${ratio >= 1.5 ? "완전 격퇴" : "신승"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 자금 +${funds}, 명성 +${COMBAT.rep_by_tier[tier]}`;
     log(`⚔️ ${state.combat.lastResult}`);
+    playSfx("sfx_raid_win");
     showSticker("jin");                                                      // 격퇴 — 진
   } else {                                                                   // 패배/완패
     applyDefeat(ratio < COMBAT.defeat.패배.min, ally, enemy, ratio, tag);
     distributeCombatXp(tier, true);
+    playSfx("sfx_raid_lose");
     showSticker("player");                                                   // 패배 — 용병 "힐, 잠깐만요!!?"
   }
 }
@@ -1852,8 +1873,10 @@ function tickGathering(dtSec) {
       const baseAdd = yields[mat].rate_per_h * gameH * mult * wm;
       const luck = RARE_MATERIALS.has(mat) ? (1 + luckBonus()) : 1;   // t31 희귀 재료만 행운 배수
       const rareDouble = (RARE_MATERIALS.has(mat) && masteryPct("조달") >= 100) ? 2 : 1;   // 마스터리 조달 100%(t33, luckBonus와 별개 배수)
-      const next = (state.materials[mat] || 0) + baseAdd * gm * cloakGatherMult() * luck * rareDouble;   // 망토(조달왕) ×1.3 + 희귀 행운 — 산출만, XP는 base
+      const prevMat = state.materials[mat] || 0;
+      const next = prevMat + baseAdd * gm * cloakGatherMult() * luck * rareDouble;   // 망토(조달왕) ×1.3 + 희귀 행운 — 산출만, XP는 base
       state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
+      if (Math.floor(state.materials[mat]) > Math.floor(prevMat)) playSfx("sfx_material_get");   // 정수 단위 상승 시(t34 §1-2)
       units += baseAdd;   // XP 베이스는 getter 전(획득 XP getter는 addSkillXp에서 별도 적용)
       if (actId === "사냥") state.huntGathered = (state.huntGathered || 0) + baseAdd;   // 사냥 재료 누적(펫 임계)
     }
@@ -1886,11 +1909,13 @@ function tickBrewSlots(dtSec) {
       if (Math.random() < explosionChance(char)) {
         // 💥 폭발: 수율 0, 진행도 리셋, 슬롯 5분(게임시간) 정리
         log(`💥 ${char.name}의 ${drink.name} 양조가 폭발! 재료가 날아갔어요(스탯 페널티 없음).`);
+        playSfx("sfx_brew_explosion");
         slot.progressSec = 0;
         slot.cooldownSec = (FERMENTATION.explosion.cleanup_min * 60) / TIME_SCALE;
         break;
       }
       state.drinks[id] = (state.drinks[id] || 0) + 1;
+      playSfx("sfx_brew_done");
       // 망토(술도사 앞치마, 전설승급 시 강화) + 마스터리 75%(+15%p): 확률로 +1병(창고 여유분 한정)
       const doubleChance = cloakBrewDoubleChance() + (masteryPct("양조") >= 75 ? 0.15 : 0);
       if (Math.random() < doubleChance && (state.drinks[id] || 0) < STOCK_MAX) state.drinks[id]++;
@@ -2175,6 +2200,12 @@ function load() {
     if (saved.story.flags && typeof saved.story.flags === "object") for (const k in saved.story.flags) if (saved.story.flags[k]) state.story.flags[k] = true;
   }
   if (typeof saved.kingdomName === "string") state.kingdomName = saved.kingdomName.slice(0, 30);
+  if (saved.settings && saved.settings.audio && typeof saved.settings.audio === "object") {
+    const a = saved.settings.audio;
+    if (typeof a.muted === "boolean") state.settings.audio.muted = a.muted;
+    if (typeof a.bgmVolume === "number") state.settings.audio.bgmVolume = Math.min(1, Math.max(0, a.bgmVolume));
+    if (typeof a.sfxVolume === "number") state.settings.audio.sfxVolume = Math.min(1, Math.max(0, a.sfxVolume));
+  }
 
   reconcileAssignments();   // 중복/유령/부상 배치 정리 + 채집 슬롯 상한
   state.lastSaved = saved.lastSaved || Date.now();
@@ -2388,6 +2419,7 @@ function pourDrink(slotIndex, drinkId) {
     state.buffSlots[slotIndex] = { drinkId, remainingSec: buffDurationSec(drink) };
     log(`🍹 ${drink.name} 버프 발동! (${drink.effect})`);
   }
+  playSfx("sfx_drink_pour");
   render();
 }
 
@@ -2476,7 +2508,9 @@ function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccou
 function doServe() {
   const a = REP_ACTIONS.serve; let rep = 0, funds = 0;
   for (let i = 0; i < a.per; i++) { const r = serveOne(); rep += r.rep; funds += r.funds; }   // 1명씩(종류 추첨·만족도 배수·보상)
-  log(`🍻 접객(손님 ${a.per}명·만족도 ${Math.round(state.satisfaction)}) — 명성 +${Math.round(rep)}, 자금 +${Math.round(funds)}.`); render();
+  log(`🍻 접객(손님 ${a.per}명·만족도 ${Math.round(state.satisfaction)}) — 명성 +${Math.round(rep)}, 자금 +${Math.round(funds)}.`);
+  playSfx("sfx_customer_serve");
+  render();
 }
 // 주점 단계 정식 승급 (명성 게이트 + 재료·자금 소비)
 function promote() {
@@ -2490,6 +2524,7 @@ function promote() {
   state.tavernStage = next.stage;
   syncBrewSlots(); reconcileAssignments();
   log(`🏰 ${next.stage}단계 '${next.name}' 승급! 발효·채집 ${slotCount()}칸 · 용병 ${stageMercSlots(next.stage)}명 · World ${next.world} 해금.`);
+  playSfx("sfx_promotion");
   // 보스 습격 예약: 4단계 → 자칭영주(tier5), 6단계 → 마왕(tier6) 각 1회성
   if (state.tavernStage === 4 && !state.combat.bossDone[5]) { state.combat.pendingBossTier = 5; log("⚠️ '자칭 영주'가 이 주점을 노린다는 소문… 곧 습격이 있을 것이다."); }
   if (state.tavernStage === 6 && !state.combat.bossDone[6]) { state.combat.pendingBossTier = 6; log("👑 마왕이 직접 온다! 최종 결전이 임박했다."); }
@@ -3199,6 +3234,7 @@ function showSticker(key, hold = 2400) {
   const now = Date.now();
   if (now - _stickerAt < 3500) return;                      // 연속 습격 등 스팸 방지
   _stickerAt = now;
+  playSfx("sfx_dialogue_show");
   const el = document.createElement("div");
   el.className = "sticker-toast";
   el.style.setProperty("--hold", hold + "ms");
@@ -3366,6 +3402,7 @@ function renderStory() {
   if (key === storyRenderedKey) return;
   storyRenderedKey = key;
   if (!storyActive) { host.innerHTML = ""; return; }
+  playSfx("sfx_dialogue_show");
   const b = STORY_BEATS.find(bt => bt.id === storyActive);
   const linesHtml = b.lines.map(([who, txt]) =>
     who ? `<div class="ob-line">${obFace(who)}<div class="ob-text"><span class="ob-speaker">${who}</span>: ${txt}</div></div>`
@@ -3494,7 +3531,120 @@ function renderLive() {
   renderMaterials(); renderRoster(); renderProgress(); renderCombat(); renderSkills(); renderDrinkStock(); renderOrders(); renderKingdom(); renderEvents();
   // 발효·채집·버프·던전·손님 카드는 통째 재생성 금지(열린 드롭다운 보존) → 진행바·상태만 in-place
   updateBrewLive(); updateBuffLive(); updateDungeonLive(); updateCustomersLive(); updateCookingLive(); updateSmithLive(); updateExpLive();
+  syncBgm();   // 상태 기반 BGM 우선순위 동기화(t34 §3-6)
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   오디오 엔진 (t34_sound_direction.md §3) — 표시 계층. 게임 로직(tick·전투·저장) 비침범.
+   audio/ 에 파일이 없어도 재생 시도가 조용히 실패(.catch)하므로 콘솔 에러·크래시 없음.
+   파일명 규약 고정: audio/bgm/{key}.mp3, audio/sfx/{key}.mp3 — 파일만 넣으면 코드 수정 없이 재생됨.
+   ══════════════════════════════════════════════════════════════════════════ */
+const AUDIO_BASE = "audio/";
+const SFX_MIN_GAP_MS = { sfx_brew_done: 400, sfx_material_get: 400, sfx_ui_click: 0 };   // ★반복 잦은 SFX만 쓰로틀(t34 §3-3)
+const audio = {
+  unlocked: false,       // 첫 사용자 입력 전엔 false(자동재생 정책 대응, t34 §3-4)
+  bgmEl: null,            // 현재 재생 중인 <audio> BGM 엘리먼트
+  bgmKey: null,           // 현재 BGM 키(크로스페이드 판단용)
+  stingerUntil: 0,        // 습격 스팅어 종료 예정 시각(Date.now 기준) — 이 시각까지 우선순위 재계산 보류
+  lastSfxAt: {}           // SFX 키별 마지막 재생 시각(쓰로틀)
+};
+function audioSrc(cat, key) { return `${AUDIO_BASE}${cat}/${key}.mp3`; }
+function audioMuted() { return !!(state.settings && state.settings.audio && state.settings.audio.muted); }
+function audioBgmVol() { return audioMuted() ? 0 : ((state.settings && state.settings.audio && state.settings.audio.bgmVolume) ?? 0.5); }
+function audioSfxVol() { return audioMuted() ? 0 : ((state.settings && state.settings.audio && state.settings.audio.sfxVolume) ?? 0.7); }
+
+// 사용자 첫 입력(클릭/키/터치) 시 오디오 언락. 그 전엔 어떤 재생 시도도 하지 않음(정책 위반 경고 방지).
+function unlockAudio() {
+  if (audio.unlocked) return;
+  audio.unlocked = true;
+  syncBgm();
+}
+["click", "keydown", "touchstart"].forEach(evt => document.addEventListener(evt, unlockAudio, { once: true, passive: true }));
+
+// SFX 재생 — 파일 없으면 조용히 무시. ★키는 쓰인 쓰로틀로 방치 스팸 방지(동틱 중복 재생도 자연 차단).
+function playSfx(key) {
+  if (!audio.unlocked || audioSfxVol() <= 0) return;
+  const gap = SFX_MIN_GAP_MS[key] || 0;
+  const now = Date.now();
+  if (gap > 0 && audio.lastSfxAt[key] && now - audio.lastSfxAt[key] < gap) return;
+  audio.lastSfxAt[key] = now;
+  try {
+    const el = new Audio(audioSrc("sfx", key));
+    el.volume = audioSfxVol();
+    el.playbackRate = 1 + (Math.random() * 0.06 - 0.03);   // ±3% 피치 변주(반복 단조로움 완화, t34 §3-3 선택사항)
+    el.play().catch(() => {});   // 파일 없음/정책 차단 → 조용히 무시(콘솔 에러 없음)
+  } catch (e) { /* 조용히 무시 */ }
+}
+
+// BGM 우선순위(t34 §3-6): 서사 > (습격 스팅어, 별도 처리) > 축제 > 던전 > 야간/평시
+function computeBgmKey() {
+  if (typeof storyActive !== "undefined" && storyActive) return "bgm_story";
+  if (state.events && state.events.festival && state.events.festival.active) return "bgm_festival";
+  if (state.dungeon && state.dungeon.run) return "bgm_dungeon";
+  return (state.events && state.events.isNight) ? "bgm_night" : "bgm_tavern";
+}
+// BGM 전환(크로스페이드). 같은 키 유지 중이면 아무 것도 안 함(산만함 방지, t34 §3-6).
+function switchBgm(key, fadeMs) {
+  fadeMs = fadeMs || 1200;
+  if (audio.bgmKey === key) return;
+  const prevEl = audio.bgmEl;
+  const nextEl = new Audio(audioSrc("bgm", key));
+  nextEl.loop = (key !== "bgm_raid");   // 습격 스팅어는 1회성(루프 아님, t34 §1-1a)
+  nextEl.volume = 0;
+  audio.bgmEl = nextEl; audio.bgmKey = key;
+  if (audio.unlocked && audioBgmVol() > 0) nextEl.play().catch(() => {});
+  const steps = 12, stepMs = fadeMs / steps;
+  let i = 0;
+  const timer = setInterval(() => {
+    i++;
+    const t = i / steps, vol = audioBgmVol();
+    nextEl.volume = vol * t;
+    if (prevEl) prevEl.volume = Math.max(0, vol * (1 - t));
+    if (i >= steps) { clearInterval(timer); if (prevEl) prevEl.pause(); }
+  }, stepMs);
+}
+// 습격 스팅어(5~8초 1회) — 평시 BGM을 잠깐 덕킹했다가 종료 시 이전 우선순위로 복귀(t34 §1-1a, §3-6)
+function playRaidStinger() {
+  if (!audio.unlocked) return;
+  switchBgm("bgm_raid", 300);
+  audio.stingerUntil = Date.now() + 8000;
+  let reverted = false;
+  const revert = () => { if (reverted) return; reverted = true; audio.stingerUntil = 0; syncBgm(); };
+  if (audio.bgmEl) audio.bgmEl.addEventListener("ended", revert, { once: true });
+  setTimeout(revert, 8000);
+}
+// 매 렌더 사이클 호출 — 상태 기반 BGM 동기화(스팅어 재생 중엔 재계산 보류)
+function syncBgm() {
+  if (!audio.unlocked) return;
+  if (Date.now() < audio.stingerUntil) return;
+  switchBgm(computeBgmKey());
+}
+// 탭 백그라운드 배려(AFK 방치 특성, t34 §3-4): 숨김 시 일시정지, 복귀 시 재개
+document.addEventListener("visibilitychange", () => {
+  if (!audio.bgmEl) return;
+  if (document.hidden) audio.bgmEl.pause();
+  else if (audio.unlocked && audioBgmVol() > 0) audio.bgmEl.play().catch(() => {});
+});
+// 공통 버튼 클릭 SFX(전체 UI onclick 델리게이션 — 개별 핸들러 수정 없이 일괄 적용, t34 §1-2 sfx_ui_click)
+document.addEventListener("click", e => { if (e.target.closest("button")) playSfx("sfx_ui_click"); }, true);
+// 볼륨/음소거 컨트롤 (t34 §3-5) — topbar에 배치된 #btn-mute/#vol-bgm/#vol-sfx와 연결
+function applyAudioUI() {
+  const a = state.settings.audio;
+  const mb = document.getElementById("btn-mute"), vb = document.getElementById("vol-bgm"), vs = document.getElementById("vol-sfx");
+  if (mb) mb.textContent = a.muted ? "🔇" : "🔊";
+  if (vb) vb.value = a.bgmVolume;
+  if (vs) vs.value = a.sfxVolume;
+  syncBgm();
+  if (audio.bgmEl && !document.hidden) {
+    if (audioBgmVol() <= 0) audio.bgmEl.pause();
+    else if (audio.unlocked) { audio.bgmEl.volume = audioBgmVol(); audio.bgmEl.play().catch(() => {}); }
+  }
+}
+document.getElementById("btn-mute").onclick = () => { state.settings.audio.muted = !state.settings.audio.muted; applyAudioUI(); save(); };
+document.getElementById("vol-bgm").oninput = e => { state.settings.audio.bgmVolume = parseFloat(e.target.value); applyAudioUI(); };
+document.getElementById("vol-bgm").onchange = () => save();
+document.getElementById("vol-sfx").oninput = e => { state.settings.audio.sfxVolume = parseFloat(e.target.value); playSfx("sfx_ui_click"); };
+document.getElementById("vol-sfx").onchange = () => save();
 
 function render() {
   needsFullRender = false;
@@ -3525,6 +3675,7 @@ function render() {
   renderBuffs();
   renderOnboarding();   // 오버레이는 항상 마지막 (강조 대상 카드가 먼저 그려진 뒤)
   renderStory();        // 본편 서사 비트(온보딩보다 뒤 = z 위)
+  syncBgm();            // 상태 기반 BGM 우선순위 동기화(t34 §3-6)
 }
 
 function log(msg) {
@@ -3690,6 +3841,7 @@ if (!DEV_MODE) { const dv = document.querySelector(".dev"); if (dv) dv.style.dis
 document.getElementById("btn-pacing").textContent = `[개발] 페이싱 무시: ${pacingOff ? "ON" : "OFF"}`;   // 로드된 토글 상태 반영
 load();
 if (!state.orders.active.length) state.orders.active = generateOrders();   // 새 게임(세이브 없음) 시 첫 의뢰 생성
+applyAudioUI();   // 저장된 볼륨/음소거 상태를 컨트롤 UI에 반영(재생은 첫 입력 후, t34 §3-4)
 render();
 setInterval(() => { tick(1); renderLive(); }, 1000);
 let autosaveTimer = setInterval(save, 5000);
