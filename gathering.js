@@ -58,6 +58,7 @@ const GATHERING = {
     yields: {
       몬스터고기:   { rate_per_h: 15,  unlock_lv: 1 },
       슬라임정수:   { rate_per_h: 0.8, unlock_lv: 30 },
+      곰의정수:     { rate_per_h: 0.4, unlock_lv: 60 },   // 가마솥 물약 '곰의 정력주' 재료(t17 §5-3)
       거인고기:     { rate_per_h: 0.5, unlock_lv: 70 }
     }
   }

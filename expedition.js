@@ -15,8 +15,8 @@ const EXPEDITION = {
   dispatches: [
     { name: "옆 마을 심부름", reqLv: 1,  duration_h: 0.5, reward: { funds: 50 }, xp: 20 },
     { name: "던전 탐사",     reqLv: 25, duration_h: 2,   reward: { funds: 300, 유물: 1 }, xp: 80 },
-    { name: "미지의 영토",   reqLv: 50, duration_h: 12,  reward: { funds: 2000, 유물: 3, legendary_mat: { pool: ["전설홉", "슬라임정수", "거인고기"], amount: 2 } }, xp: 200 },
-    { name: "마왕성 정찰",   reqLv: 70, duration_h: 24,  reward: { funds: 5000, 유물: 5, story: "마왕 정보" }, xp: 400 }
+    { name: "미지의 영토",   reqLv: 50, duration_h: 12,  reward: { funds: 2000, 유물: 3, legendary_mat: { pool: ["전설홉", "슬라임정수", "거인고기"], amount: 2 }, 매의깃털: 2 }, xp: 200 },
+    { name: "마왕성 정찰",   reqLv: 70, duration_h: 24,  reward: { funds: 5000, 유물: 5, story: "마왕 정보", 매의깃털: 3 }, xp: 400 }
   ]
 };
 const DISPATCH_BY_NAME = {}; EXPEDITION.dispatches.forEach(d => DISPATCH_BY_NAME[d.name] = d);
