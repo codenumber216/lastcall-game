@@ -415,6 +415,7 @@ function freshState() {
     funds: 0,                 // 자금(승급 비용·소비)
     creditLedger: 0,          // 외상 미수금(접대 20% 이연 → 회수 rate/h로 자금 전환)
     skills: freshSkills(),    // 용병별 스킬 { charId: { 양조, 조달, 전투 : {lv,xp} } }
+    mastery: { 양조: 0, 조달: 0, 전투: 0, 요리: 0, 대장일: 0, 원정: 0 },  // 마스터리 풀(계정 단위 누적 XP, t33) — cap 5000만=100%
     combat: freshCombat(),    // 전투 상태(방벽·습격 타이머·부상 등)
     orders: { active: [], timerSec: weekSec(), repeatCount: {} },  // 의뢰 게시판(active는 부팅/로드 후 생성)
     stamps: {},   // 왕국 무용담 { 무용담id: lv(1~20) }  미기부=없음=Lv0
@@ -441,7 +442,7 @@ function freshState() {
     expedition: { charId: null, dispatch: EXPEDITION.dispatches[0].name, remainingSec: 0, totalSec: 0, active: false, completedCount: 0 },  // 원정 파견
     distillery: { level: 0, slots: [] },  // 자동 증류탑(레벨 0=미건립, 슬롯=샘플 데이터 보유)
     alchemy: { bubbles: {} },  // 가마솥 거품 { 거품id: lv } — 영구 가산 버프(재료 투입으로 즉시 레벨업)
-    cloaks: { owned: {} },  // 명예의 망토 { 트랙: true } — 트랙 Lv.99 달성 시 획득(계정 영구 퍽)
+    cloaks: { owned: {}, legendary: {}, omni: false },  // 명예의 망토 { 트랙: true } — Lv.99 획득, legendary=마스터리100% 승급, omni=6트랙 전설(t33)
     alliances: { formed: {} },  // 동맹 { 세력: true } — 명성5000 해금·조건 충족 시 체결(영구 가산)
     relationships: {},  // 용병 친분 { charId: 누적근무시간 } — Lv.3/5 관계 보상(relationship.js)
     huntGathered: 0,          // 사냥 재료 누적 획득 수(사냥 늑대 펫 임계 1000)
@@ -741,11 +742,34 @@ function skillLv(charId, skill) {
   const c = CHARACTERS[charId];
   return skill === "양조" ? (c ? c.brewLevel : 1) : (c ? c.gatherLevel : 1);
 }
+/* ── 마스터리 풀 (Mastery Pool, t33 SSOT) — 6트랙 계정 단위 누적. 스킬 레벨(용병별 1~99)과 별개 축 ── */
+const MASTERY_CAP = 50000000;
+const MASTERY_TRACKS = ["양조", "조달", "전투", "요리", "대장일", "원정"];
+const MASTERY_MILESTONES = {
+  양조:   { 25: { group: "brew_speed",  value: 0.08, label: "발효 시간 -8%" },   50: { xp: 0.12, label: "양조 XP +12%" }, 75: { hook: "brew_double", value: 0.15, label: "2병 생산 확률 +15%" }, 100: { hook: "brew_explosion_negate", label: "양조 폭발 0%(완전 제거)" } },
+  조달:   { 25: { group: "gather_rate", value: 0.08, label: "채집 속도 +8%" },   50: { xp: 0.12, label: "조달 XP +12%" }, 75: { group: "rare_drop", value: 0.15, label: "희귀 재료 +15%" },      100: { hook: "rare_double", label: "희귀 재료 산출 ×2" } },
+  전투:   { 25: { group: "combat_atk",  value: 0.08, label: "전투력 +8%" },      50: { xp: 0.12, label: "전투 XP +12%" }, 75: { group: "combat_survive", value: 0.08, label: "받는 피해 -8%" }, 100: { group: "combat_atk", value: 0.15, label: "전투력 +15%" } },
+  요리:   { 25: { hook: "cook_speed",   value: 0.08, label: "요리 시간 -8%" },   50: { xp: 0.12, label: "요리 XP +12%" }, 75: { hook: "snack_mult", value: 0.15, label: "안주 효과 +15%" },      100: { hook: "snack_mult", value: 0.30, label: "안주 효과 +30% 추가" } },
+  대장일: { 25: { hook: "smith_speed",  value: 0.08, label: "제작 시간 -8%" },   50: { xp: 0.12, label: "대장일 XP +12%" }, 75: { group: "quality", value: 0.15, label: "품질 등급업 +15%" },    100: { group: "craft_mat", value: 0.20, label: "제작 재료 -20%" } },
+  원정:   { 25: { hook: "exp_speed",    value: 0.08, label: "원정 시간 -8%" },   50: { xp: 0.12, label: "원정 XP +12%" }, 75: { group: "discovery", value: 0.15, label: "원정 보상 +15%" },     100: { hook: "artifact_double", label: "유물·전설재료 2배" } }
+};
+function masteryPct(track) { return Math.min(100, ((state.mastery && state.mastery[track]) || 0) / MASTERY_CAP * 100); }
+// 마일스톤 중 group 타입만 합산(무용담·펫·거품·망토와 동일 그룹 → 합산 후 동일 캡에서 클리핑). hook 타입은 각자 소비처에서 개별 처리.
+function masteryGroupBonus(group) {
+  let s = 0;
+  MASTERY_TRACKS.forEach(t => {
+    const p = masteryPct(t), ms = MASTERY_MILESTONES[t];
+    [25, 75, 100].forEach(th => { const m = ms[th]; if (m && m.group === group && p >= th) s += m.value; });
+  });
+  return s;
+}
+function masteryXpBonus(track) { return masteryPct(track) >= 50 ? 0.12 : 0; }   // 50% 마일스톤(전 6트랙 공통 XP 훅)
 // XP 적립 + 레벨업(누적 XP가 충분하면 연속 레벨업). 활동 종료 시 호출.
 function addSkillXp(charId, skill, amount) {
   const node = state.skills && state.skills[charId] && state.skills[charId][skill];
   if (!node || amount <= 0) return;
-  node.xp += amount * (1 + xpBonus(skill)) * getterMult();   // XP 가속(xp_조달/전투/all) × 90% 전 획득 x1.15(XP 획득)
+  if (state.mastery && MASTERY_TRACKS.indexOf(skill) >= 0) state.mastery[skill] += amount;   // 계정 마스터리 풀 누적(base XP, getter 전) — t33
+  node.xp += amount * (1 + xpBonus(skill) + masteryXpBonus(skill)) * getterMult();   // XP 가속(xp_조달/전투/all+마스터리50%) × 90% 전 획득 x1.15(XP 획득)
   while (node.lv < SKILLS.level_max && node.xp >= SKILLS.xpToNext(node.lv)) {
     node.xp -= SKILLS.xpToNext(node.lv);
     node.lv++;
@@ -760,7 +784,8 @@ function gatherSkillBonus(charId) {
     + cardPetAccountBonus("gather_rate") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "gather_rate") + equippedPetBonus(charId, "all_skill")
     + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill")   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
-    + cauldronBonus("gather_rate") + allianceBonus("gather_rate") + nightProductionBonus();   // 가마솥 + 동맹 + 야간(야행 유령)
+    + cauldronBonus("gather_rate") + allianceBonus("gather_rate") + nightProductionBonus()   // 가마솥 + 동맹 + 야간(야행 유령)
+    + masteryGroupBonus("gather_rate") + cloakOmniBonus("all_skill");   // 마스터리 25%(t33) + 만능 망토
   return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
@@ -774,7 +799,8 @@ function brewSpeedBonus(charId) {
     + cardPetAccountBonus("brew_speed") + cardPetAccountBonus("all_skill")
     + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill")  // 양조 두꺼비 등
     + mercSetBonus(charId, "all_skill")   // 장비 세트(마왕성 전 스킬)
-    + cauldronBonus("brew_speed") + relationshipBonus("brew_speed") + nightProductionBonus();   // 가마솥(발효) + 관계(보리) + 야간(야행 유령)
+    + cauldronBonus("brew_speed") + relationshipBonus("brew_speed") + nightProductionBonus()   // 가마솥(발효) + 관계(보리) + 야간(야행 유령)
+    + masteryGroupBonus("brew_speed") + cloakOmniBonus("all_skill");   // 마스터리 25%(t33) + 만능 망토
   return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
@@ -831,8 +857,7 @@ function gatherBuffMultiplier(activityId) {
 function explosionChance(char) {
   const ex = FERMENTATION.explosion;
   if (!char || char.race !== "슬라임") return 0;     // 슬라임만 폭발
-  // (마스터리 풀 100% → 0% : 마스터리 시스템 도입 후 연결)
-  return ex.base_rate * (1 - (ex.slime_self_immune_chance || 0));
+  return ex.base_rate * (1 - (ex.slime_self_immune_chance || 0)) * (1 - masteryPct("양조") / 100);   // 마스터리 양조 100%→폭발 0%(t33, 슬라임 종족 완화와 별개 최종 곱)
 }
 
 
@@ -862,13 +887,15 @@ function combatAtkMult(ids) {
   let eq = 0; ids.forEach(id => eq += mercAccessoryAtk(id) + mercSetBonus(id, "combat_atk") + mercSetBonus(id, "all_skill"));
   return 1 + Math.min(COMBAT.m_atk_cap, combatBuffTotals().atk + kingdomBonus("combat_atk") + kingdomBonus("all_skill") + (drinkBuffOn("보리의정수") ? 0.25 : 0)
     + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
-    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk") + cauldronBonus("combat_atk") + cloakBonus("combat_atk") + allianceBonus("combat_atk") + relationshipBonus("combat_atk"));   // 비치 안주 + 가마솥 + 망토 + 동맹 + 관계(콩이)
+    + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk") + cauldronBonus("combat_atk") + cloakBonus("combat_atk") + allianceBonus("combat_atk") + relationshipBonus("combat_atk")
+    + masteryGroupBonus("combat_atk") + cloakOmniBonus("all_skill"));   // 마스터리 25%+100%(t33) + 만능 망토
 }
 function combatSurviveMult(ids) {
   ids = ids || [];
   let eq = 0; ids.forEach(id => eq += mercSurvive(id) + mercSetBonus(id, "combat_survive"));   // 갑옷·투구·방패 + 세트 방어
   return 1 + Math.min(COMBAT.m_survive_cap, combatBuffTotals().survive + kingdomBonus("combat_survive")
-    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive") + eq + snackBonus("survive") + cauldronBonus("combat_survive"));   // 비치 안주(생존) + 가마솥(철벽)
+    + cardPetAccountBonus("combat_survive") + equippedPetBonusAll("combat_survive") + eq + snackBonus("survive") + cauldronBonus("combat_survive")
+    + masteryGroupBonus("combat_survive"));   // 마스터리 75%(t33)
 }
 function combatAccountMult() { return 1 + Math.min(COMBAT.m_account_cap, (state.reputation / 10000) * COMBAT.m_account_per_10k); }
 // 아군 방어 전력 = P_base × M_atk × M_survive × M_audience × M_account (resolution 공식)
@@ -1253,6 +1280,7 @@ function nightProductionBonus() { return (state.events && state.events.isNight &
 function luckBonus() {
   let b = (typeof cauldronBonus === "function") ? cauldronBonus("rare_drop") : 0;
   b += (typeof equippedPetBonusAll === "function") ? equippedPetBonusAll("rare_drop") : 0;
+  b += masteryGroupBonus("rare_drop");   // 마스터리 조달 75%(t33)
   return b;
 }
 const RARE_MATERIALS = new Set(EVENTS.luck.rare_materials);
@@ -1404,7 +1432,7 @@ function assignServe(charId) {
 
 
 /* ── 요리·안주 엔진 (t28) ─────────────────────────────────────────────────── */
-function snackEffectMult() { return 1 + (petEquippedMerc("요리 너구리") ? COOKING.racoon_bonus : 0) + cloakSnackAdd(); }   // 요리 너구리 ×1.15 + 망토(명요리사 +0.50)
+function snackEffectMult() { return 1 + (petEquippedMerc("요리 너구리") ? COOKING.racoon_bonus : 0) + cloakSnackAdd() + (masteryPct("요리") >= 75 ? 0.15 : 0) + (masteryPct("요리") >= 100 ? 0.30 : 0); }   // 요리 너구리 ×1.15 + 망토(명요리사, 전설승급 시 강화) + 마스터리 75%/100%(t33)
 // 비치 안주의 그룹별 효과 합(survive/atk/satisfaction/xp) × 요리너구리
 function snackBonus(group) {
   let s = 0;
@@ -1419,7 +1447,7 @@ function totalSnackStock() { return Object.values(state.snacks).reduce((a, b) =>
 function cookMatMult() { return 1 - Math.min(0.95, kingdomBonus("cook_mat")); }   // 안주 무용담: 재료 -%
 function snackMatCost(sn, m) { return sn.mat[m] * cookMatMult(); }
 function hasSnackMaterials(sn) { for (const m in sn.mat) if ((state.materials[m] || 0) < snackMatCost(sn, m)) return false; return true; }
-function snackCookSeconds(sn) { return sn.duration_h * 3600 / TIME_SCALE; }
+function snackCookSeconds(sn) { return (sn.duration_h * 3600 / TIME_SCALE) / (1 + (masteryPct("요리") >= 25 ? 0.08 : 0)); }   // 마스터리 요리 25%(t33)
 // 요리 슬롯 진행: 양조와 동형(재료 투입 → cookSeconds마다 안주 1개 + 요리 XP)
 function tickCook(dtSec) {
   const slot = state.cookSlot; if (!slot || !slot.charId) return;
@@ -1461,8 +1489,8 @@ function setCookSnack(snackId) { if (SNACK_BY_ID[snackId]) { state.cookSlot.snac
 
 /* ── 대장일(제작) 엔진 (t29) ──────────────────────────────────────────────── */
 function smithGradeUnlocked(grade) { return skillLv(state.smithing.charId, "대장일") >= SMITHING.grade_unlock_by_level[grade]; }
-function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level); }
-function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat") + relationshipBonus("craft_mat")); }   // 제작 무용담 + 관계(도리) 재료 -%
+function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level + (masteryPct("대장일") >= 25 ? 0.08 : 0)); }   // 마스터리 대장일 25%(t33)
+function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat") + relationshipBonus("craft_mat") + masteryGroupBonus("craft_mat")); }   // 제작 무용담 + 관계(도리) + 마스터리 대장일 100%(t33) 재료 -%
 // 레시피: 부위 기본재료 × 등급배수 × 제작무용담. 전설은 전설재료 추가.
 function smithRecipe(part, grade) {
   const out = {}; const base = SMITHING.base_mat_by_part[part], mult = SMITHING.qty_mult_by_grade[grade], cm = craftMatMult();
@@ -1475,7 +1503,7 @@ function craftSeconds(grade) { return (SMITHING.craft_time_h_by_grade[grade] * 3
 // 품질(등급업 확률) = 장인 술통(SSOT) + 망치꾼 클래스 + 제작 드래곤 펫 (합산)
 function qualityUpgradeChance() {
   if (cloakSmithGuaranteed()) return 1.0;   // 대장장이 앞치마: +1등급 보장(0.95 캡 오버라이드)
-  let q = kingdomBonus("quality");
+  let q = kingdomBonus("quality") + masteryGroupBonus("quality");   // 마스터리 대장일 75%(t33)
   const sm = state.smithing.charId;
   if (sm && CHARACTERS[sm].class === "망치꾼") q += SMITHING.quality.망치꾼_class_bonus;
   if (petEquippedMerc("제작 드래곤")) q += SMITHING.quality.dragon_pet_bonus;
@@ -1494,7 +1522,8 @@ function tickSmith(dtSec) {
     const r = smithRecipe(s.part, s.grade);
     for (const m in r) state.materials[m] = (state.materials[m] || 0) - r[m];
     let grade = s.grade;
-    if (Math.random() < qualityUpgradeChance()) grade = nextGrade(grade);   // 품질 등급업
+    if (cloakSmithLegendary()) grade = nextGrade(nextGrade(grade));         // 전설 대장장이 앞치마: +2등급 보장(t33)
+    else if (Math.random() < qualityUpgradeChance()) grade = nextGrade(grade);   // 품질 등급업
     grantEquipment(`${grade} ${s.part}`);
     addSkillXp(s.charId, "대장일", SMITHING.xp_per_craft_by_grade[s.grade]);
     s.progressSec -= oneSec;
@@ -1515,9 +1544,9 @@ function setSmithGrade(grade) { if (SMITHING.grades.indexOf(grade) >= 0) { state
 
 
 /* ── 원정(파견) 엔진 (t30) ────────────────────────────────────────────────── */
-function expSpeedBonus(charId) { return Math.min(EXPEDITION.speed_cap, (skillLv(charId, "원정") - 1) * EXPEDITION.speed_per_level); }
+function expSpeedBonus(charId) { return Math.min(EXPEDITION.speed_cap, (skillLv(charId, "원정") - 1) * EXPEDITION.speed_per_level + (masteryPct("원정") >= 25 ? 0.08 : 0)); }   // 마스터리 원정 25%(t33)
 function garmaTimeMult() { return petEquippedMerc(EXPEDITION.garma_pet) ? (1 - EXPEDITION.garma_time_reduction) : 1; }   // 원정 군마 -20%
-function expeditionRewardMult() { return 1 + kingdomBonus("discovery") + cloakBonus("discovery") + cardPetAccountBonus("discovery"); }   // 원정 무용담·모험 술통 + 망토 + 모험가 단골(discovery)
+function expeditionRewardMult() { return 1 + kingdomBonus("discovery") + cloakBonus("discovery") + cardPetAccountBonus("discovery") + masteryGroupBonus("discovery"); }   // 원정 무용담·모험 술통 + 망토(전설승급 시 강화) + 모험가 단골(discovery) + 마스터리 75%(t33)
 function expDispatchUnlocked(d) { return skillLv(state.expedition.charId, "원정") >= d.reqLv; }
 function expDuration(d) { return (d.duration_h * 3600 / TIME_SCALE) / (1 + expSpeedBonus(state.expedition.charId)) * garmaTimeMult(); }
 function startExpedition() {
@@ -1542,10 +1571,11 @@ function resolveExpedition() {
   const e = state.expedition, d = DISPATCH_BY_NAME[e.dispatch];
   if (!d) { e.active = false; return; }
   const mult = expeditionRewardMult();
+  const artDouble = masteryPct("원정") >= 100 ? 2 : 1;   // 마스터리 원정 100%(t33): 유물·전설재료 2배
   let txt = "";
   const funds = Math.round((d.reward.funds || 0) * mult); state.funds += funds; txt += `자금 +${funds}`;
-  if (d.reward.유물) { const a = Math.round(d.reward.유물 * mult); state.materials["유물"] = (state.materials["유물"] || 0) + a; txt += `·유물 +${a}`; }
-  if (d.reward.legendary_mat) { const lm = d.reward.legendary_mat, m = lm.pool[Math.floor(Math.random() * lm.pool.length)]; state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + lm.amount); txt += `·${m} +${lm.amount}`; }
+  if (d.reward.유물) { const a = Math.round(d.reward.유물 * mult * artDouble); state.materials["유물"] = (state.materials["유물"] || 0) + a; txt += `·유물 +${a}`; }
+  if (d.reward.legendary_mat) { const lm = d.reward.legendary_mat, m = lm.pool[Math.floor(Math.random() * lm.pool.length)]; state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + lm.amount * artDouble); txt += `·${m} +${lm.amount * artDouble}`; }
   if (d.reward.story) txt += `·📜 ${d.reward.story}`;
   addSkillXp(e.charId, "원정", d.xp);
   e.completedCount = (e.completedCount || 0) + 1;
@@ -1724,7 +1754,8 @@ function tickGathering(dtSec) {
       if (lv < (yields[mat].unlock_lv || 1)) continue;  // 조달 레벨 < 재료 unlock_lv → 미해금(생산 안 함)
       const baseAdd = yields[mat].rate_per_h * gameH * mult * wm;
       const luck = RARE_MATERIALS.has(mat) ? (1 + luckBonus()) : 1;   // t31 희귀 재료만 행운 배수
-      const next = (state.materials[mat] || 0) + baseAdd * gm * cloakGatherMult() * luck;   // 망토(조달왕) ×1.3 + 희귀 행운 — 산출만, XP는 base
+      const rareDouble = (RARE_MATERIALS.has(mat) && masteryPct("조달") >= 100) ? 2 : 1;   // 마스터리 조달 100%(t33, luckBonus와 별개 배수)
+      const next = (state.materials[mat] || 0) + baseAdd * gm * cloakGatherMult() * luck * rareDouble;   // 망토(조달왕) ×1.3 + 희귀 행운 — 산출만, XP는 base
       state.materials[mat] = next > MAT_CAP ? MAT_CAP : next;
       units += baseAdd;   // XP 베이스는 getter 전(획득 XP getter는 addSkillXp에서 별도 적용)
       if (actId === "사냥") state.huntGathered = (state.huntGathered || 0) + baseAdd;   // 사냥 재료 누적(펫 임계)
@@ -1763,8 +1794,9 @@ function tickBrewSlots(dtSec) {
         break;
       }
       state.drinks[id] = (state.drinks[id] || 0) + 1;
-      // 망토(술도사 앞치마): 30% 확률로 +1병(창고 여유분 한정)
-      if (Math.random() < cloakBrewDoubleChance() && (state.drinks[id] || 0) < STOCK_MAX) state.drinks[id]++;
+      // 망토(술도사 앞치마, 전설승급 시 강화) + 마스터리 75%(+15%p): 확률로 +1병(창고 여유분 한정)
+      const doubleChance = cloakBrewDoubleChance() + (masteryPct("양조") >= 75 ? 0.15 : 0);
+      if (Math.random() < doubleChance && (state.drinks[id] || 0) < STOCK_MAX) state.drinks[id]++;
       addSkillXp(slot.charId, "양조", brewingXpForLevel(skillLv(slot.charId, "양조")));  // 양조 XP 적립(추가 병은 XP 미포함)
       slot.progressSec -= oneBottleSec;
     }
@@ -2015,6 +2047,11 @@ function load() {
   }
   if (saved.cloaks && typeof saved.cloaks === "object" && saved.cloaks.owned && typeof saved.cloaks.owned === "object") {
     for (const track in saved.cloaks.owned) if (CLOAK_BY_TRACK[track] && saved.cloaks.owned[track]) state.cloaks.owned[track] = true;
+    if (saved.cloaks.legendary && typeof saved.cloaks.legendary === "object") for (const track in saved.cloaks.legendary) if (CLOAK_BY_TRACK[track] && saved.cloaks.legendary[track]) state.cloaks.legendary[track] = true;
+    if (saved.cloaks.omni) state.cloaks.omni = true;
+  }
+  if (saved.mastery && typeof saved.mastery === "object") {
+    MASTERY_TRACKS.forEach(t => { const v = saved.mastery[t]; if (typeof v === "number" && v >= 0) state.mastery[t] = v; });
   }
   if (saved.alliances && typeof saved.alliances === "object" && saved.alliances.formed && typeof saved.alliances.formed === "object") {
     for (const f in saved.alliances.formed) if (ALLIANCE_BY_FACTION[f] && saved.alliances.formed[f]) state.alliances.formed[f] = true;
@@ -2293,7 +2330,18 @@ function renderSkills() {
         <span class="slot-status">양조 ${bw.lv} · 조달 ${gd.lv} · 전투 ${ct.lv}(${c.combatSkill}) · 요리 ${ck.lv} · 대장일 ${sm.lv} · 원정 ${ex.lv}</span></div>
       <div class="gather-sub">양조 ${pct(bw)}% · 조달 ${pct(gd)}% · 전투 ${pct(ct)}% · 요리 ${pct(ck)}% · 대장일 ${pct(sm)}% · 원정 ${pct(ex)}%</div>
     </div>`;
+  }).join("") + renderMasteryBars();
+}
+// 마스터리 풀(t33): 계정 단위 6트랙, 트랙당 1줄. 25/50/75/100 마커 + 마일스톤 툴팁.
+function renderMasteryBars() {
+  const rows = MASTERY_TRACKS.map(t => {
+    const p = masteryPct(t), pctTxt = Math.floor(p);
+    const marks = [25, 50, 75, 100].map(m => `<span style="position:absolute;left:${m}%;top:0;bottom:0;width:1px;background:#00000055"></span>`).join("");
+    const tip = [25, 50, 75, 100].map(m => `${m}%: ${MASTERY_MILESTONES[t][m].label}`).join(" · ");
+    return `<div class="row" style="margin:4px 0 1px" title="${tip}"><span class="label">🎓 ${t} 마스터리</span><span class="value">${pctTxt}%</span></div>
+      <div class="bar-bg" style="position:relative" title="${tip}"><div class="bar-fill" style="width:${pctTxt}%;background:#8a6fd6"></div>${marks}</div>`;
   }).join("");
+  return `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #3a2e22"><div class="gather-sub" style="margin-bottom:2px">🎓 마스터리 풀 (계정 단위, 6트랙 — 엔드게임 성장)</div>${rows}</div>`;
 }
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
@@ -2496,13 +2544,20 @@ function renderCloaks() {
   const box = document.getElementById("ui-cloaks"); if (!box) return;
   let html = "";
   CLOAKS.list.forEach(c => {
-    const owned = cloakOwned(c.track);
+    const owned = cloakOwned(c.track), legendary = cloakLegendary(c.track);
+    const readyForLegendary = owned && !legendary && masteryPct(c.track) >= 100;
     let best = 0, bestName = "";
     Object.keys(CHARACTERS).forEach(id => { if (!isRecruited(id)) return; const lv = skillLv(id, c.track); if (lv > best) { best = lv; bestName = CHARACTERS[id].name; } });
-    const status = owned ? `✅ 획득 · ${c.effect}` : `🔒 ${c.track} Lv.${best}/99${bestName ? ` (${bestName})` : ""}`;
-    html += `<div class="slot-row${owned ? " active" : ""}"><div class="slot-head"><span class="slot-name">${c.name}</span><span class="slot-status">${status}</span></div></div>`;
+    let status;
+    if (legendary) status = `🌟 전설 · ${c.legendary.effect}`;
+    else if (owned) status = `✅ 획득 · ${c.effect} (마스터리 ${Math.floor(masteryPct(c.track))}%)`;
+    else status = `🔒 ${c.track} Lv.${best}/99${bestName ? ` (${bestName})` : ""}`;
+    const badge = readyForLegendary ? `<span style="margin-left:6px;color:#c9853d;font-size:12px">전설 승급 가능</span>` : "";
+    html += `<div class="slot-row${owned ? " active" : ""}"><div class="slot-head"><span class="slot-name">${legendary ? c.legendary.name : c.name}${badge}</span><span class="slot-status">${status}</span></div></div>`;
   });
-  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">전설 승급·만능 망토는 보류(마스터리 시스템 대기).</div>`;
+  const omni = state.cloaks && state.cloaks.omni;
+  const legendCount = CLOAKS.list.filter(c => cloakLegendary(c.track)).length;
+  html += `<div class="gather-sub" style="margin-top:6px;color:${omni ? "#c9853d" : "#80766a"}">${omni ? "👑 만능 망토 획득 — 전 스킬 +15% + 칭호 '살아있는 전설'" : `만능 망토: 전 6트랙 전설 달성 시 해금 (현재 ${legendCount}/6)`}</div>`;
   box.innerHTML = html;
 }
 /* ── 동맹 렌더 (alliances.js 로직 사용) ─────────────────────────────────────── */
