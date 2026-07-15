@@ -10,78 +10,146 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="art/stickers/player.png">
 <style>
-  /* ─────────── 보기 좋으라고 넣은 최소 스타일 (게임 로직과 무관) ─────────── */
+  /* ─────────── UI 개편 v1 — 디자인 토큰 (아트 디렉션 스펙 §1) ─────────── */
+  :root {
+    --bg1:#1b1410; --bg2:#241a13;
+    --panel:#2e2118; --panel2:#38281c;
+    --line:#4d3826; --line2:#6b4a2e;
+    --amber:var(--amber); --gold:#e8b563;
+    --ink:#ece0cc; --mute:#a4907a;
+    --good:var(--good); --warn:#d98a4a; --bad:var(--bad);
+    --radius:14px; --shadow:0 6px 20px #0007;
+  }
+  *{box-sizing:border-box}
   body {
-    font-family: "맑은 고딕", system-ui, sans-serif;
-    background: #1a1410; color: #f0e6d2;
-    max-width: 480px; margin: 24px auto; padding: 0 16px;
+    font-family: "Segoe UI","맑은 고딕", system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 500px at 50% -10%, #3a2a1c55, transparent),
+      linear-gradient(180deg,var(--bg1),var(--bg2));
+    max-width: 940px; margin: 0 auto; padding: 14px;
     line-height: 1.6;
   }
-  h1 { font-size: 20px; border-bottom: 2px solid #5a4632; padding-bottom: 8px; }
+  h1 { display:none; }  /* 상단 바(.topbar)로 대체 */
+
+  /* ── 상단 바(고정 요약) ── */
+  .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    background:linear-gradient(180deg,#3a2a1c,#2a1e15);
+    border:1px solid var(--line2);border-radius:var(--radius);padding:12px 16px;box-shadow:var(--shadow);
+    position:relative;overflow:hidden;margin-bottom:10px}
+  .topbar::after{content:"";position:absolute;inset:0;border-radius:var(--radius);
+    box-shadow:inset 0 1px 0 #ffffff18, inset 0 -10px 24px #0006;pointer-events:none}
+  .logo{font-weight:800;font-size:20px;letter-spacing:.5px;
+    background:linear-gradient(180deg,#f4d08a,var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stage-badge{font-size:12px;color:var(--gold);border:1px solid var(--line2);
+    border-radius:20px;padding:4px 10px;background:#00000033;white-space:nowrap}
+  .topbar .spacer{flex:1}
+  .stat{display:flex;align-items:center;gap:6px;background:#00000038;border:1px solid var(--line);
+    border-radius:20px;padding:6px 12px;font-weight:700;white-space:nowrap}
+  .stat .v.gold{color:var(--gold)} .stat .v.rep{color:var(--good)}
+
+  /* ── 탭 바 ── */
+  .tabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+  .tab{flex:1;min-width:70px;text-align:center;padding:10px 6px;border-radius:11px;cursor:pointer;
+    background:var(--panel);border:1px solid var(--line);color:var(--mute);font-weight:700;font-size:13px;
+    transition:.15s;user-select:none}
+  .tab .em{display:block;font-size:18px;margin-bottom:2px;filter:saturate(.9)}
+  .tab:hover{color:var(--ink);border-color:var(--line2)}
+  .tab.on{color:#20160e;border-color:#e9b25a;
+    background:linear-gradient(180deg,#f2c877,var(--amber));box-shadow:0 4px 12px var(--amber)55, inset 0 1px 0 #fff6}
+
   .card {
-    background: #2a2018; border: 1px solid #5a4632; border-radius: 10px;
-    padding: 16px; margin: 12px 0;
+    background: linear-gradient(180deg,var(--panel),#281c14); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px; margin: 0 0 14px; box-shadow: var(--shadow); position: relative;
   }
+  .card > .label:first-child, .card h2 { margin:0 0 10px; color: var(--gold); letter-spacing:.3px; }
   .row { display: flex; justify-content: space-between; margin: 6px 0; }
-  .label { color: #c9b896; }
+  .label { color: var(--mute); }
   .value { font-weight: bold; }
   button {
-    background: #c9853d; color: #1a1410; border: none; border-radius: 8px;
+    background: var(--amber); color: var(--bg1); border: none; border-radius: 8px;
     padding: 10px 16px; font-size: 15px; font-weight: bold; cursor: pointer;
     margin: 4px 4px 4px 0; min-height: 44px;
   }
-  button:disabled { background: #4a4038; color: #80766a; cursor: not-allowed; }
+  button:disabled { background: #4a4038; color: var(--mute); cursor: not-allowed; }
   select {
-    background: #1a1410; color: #f0e6d2; border: 1px solid #5a4632;
+    background: var(--bg1); color: var(--ink); border: 1px solid var(--line);
     border-radius: 6px; padding: 6px; font-size: 13px; min-height: 44px;
   }
-  .bar-bg { background: #1a1410; border-radius: 6px; height: 14px; overflow: hidden; margin-top: 4px; }
-  .bar-fill { background: #c9853d; height: 100%; width: 0%; transition: width 0.2s; }
-  .log { font-size: 13px; color: #a89878; max-height: 120px; overflow-y: auto; }
-  .dev { font-size: 12px; color: #80766a; border-top: 1px dashed #5a4632; margin-top: 16px; padding-top: 8px; }
-  .status { color: #7fb069; }
-  .status.stop { color: #d96b6b; }
+  .bar-bg { background: var(--bg1); border-radius: 6px; height: 14px; overflow: hidden; margin-top: 4px; }
+  .bar-fill { background: linear-gradient(90deg,var(--amber),var(--gold)); height: 100%; width: 0%; transition: width 0.2s; }
+  .log { font-size: 13px; color: var(--mute); max-height: 120px; overflow-y: auto; }
+  .dev { font-size: 12px; color: var(--mute); border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 8px; }
+  .status { color: var(--good); }
+  .status.stop { color: var(--bad); }
 
-  /* ── 그리드 칸(재료 창고·용병 로스터 공용) ── */
+  /* ── 그리드 칸(재료 창고 등) ── */
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
   .cell {
-    background: #1a1410; border: 1px solid #5a4632; border-radius: 6px;
-    padding: 6px 8px; display: flex; justify-content: space-between; font-size: 13px;
+    background: var(--bg1); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 8px; display: flex; align-items: center; gap: 6px; justify-content: space-between; font-size: 13px;
   }
-  .cell .k { color: #c9b896; }
+  .cell .k { color: var(--mute); display: flex; align-items: center; gap: 5px; }
   .cell .v { font-weight: bold; }
-  .cell.busy { border-color: #7fb069; }
+  .cell.busy { border-color: var(--good); }
+  .ico { width: 18px; height: 18px; object-fit: contain; flex: 0 0 auto; }
+  .ico-fallback { flex: 0 0 auto; }
 
   /* ── 술 창고(읽기 전용 목록) ── */
   .drink-list { margin-top: 8px; }
   .drink-row {
-    background: #1a1410; border: 1px solid #5a4632; border-radius: 8px;
+    background: var(--bg1); border: 1px solid var(--line); border-radius: 8px;
     padding: 6px 10px; margin: 5px 0;
     display: flex; justify-content: space-between; align-items: baseline;
   }
   .drink-name { font-weight: bold; }
-  .drink-stock { color: #c9b896; font-size: 13px; }
-  .lack { color: #d96b6b; }
+  .drink-stock { color: var(--ink); font-size: 13px; }
+  .lack { color: var(--bad); }
 
   /* ── 발효 슬롯 / 채집 활동 행 ── */
   .slot-row, .gather-row {
-    background: #1a1410; border: 1px solid #5a4632; border-radius: 8px;
+    background: var(--bg1); border: 1px solid var(--line); border-radius: 8px;
     padding: 8px 10px; margin: 6px 0;
   }
-  .slot-row.active, .gather-row.active { border-color: #7fb069; background: #1f2616; }
+  .slot-row.active, .gather-row.active { border-color: var(--good); background: #1f2616; }
   .slot-head, .gather-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .slot-name, .gather-name { font-weight: bold; }
-  .slot-status, .gather-sub { font-size: 12px; color: #a89878; }
-  .slot-controls { display: flex; gap: 6px; margin: 6px 0; }
+  .slot-status, .gather-sub { font-size: 12px; color: var(--ink); }
+  .slot-controls { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
   .slot-controls select { flex: 1; min-width: 0; }
   .gather-sub { margin-top: 2px; }
+  .slot-face { width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto; object-fit: cover;
+    border: 2px solid var(--amber); background: var(--bg1); }
+
+  /* ── 용병 로스터 (원형 초상화 카드, §3-2) ── */
+  .roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:8px}
+  .merc{display:flex;gap:12px;align-items:center;padding:12px;border-radius:12px;
+    background:radial-gradient(120px 80px at 20% 0%, #3a2a1c, #251a12);
+    border:1px solid var(--line);position:relative;overflow:hidden}
+  .merc.busy{border-color:#5c7a44}
+  .merc.locked{filter:grayscale(.8) brightness(.6)}
+  .face{width:64px;height:64px;border-radius:50%;flex:0 0 auto;object-fit:cover;
+    border:2.5px solid var(--amber);background:var(--bg1);box-shadow:0 2px 8px #000a, inset 0 0 0 2px #00000055}
+  .merc .nm{font-weight:800;font-size:15px}
+  .merc .cl{font-size:11px;color:var(--gold);margin:1px 0 5px}
+  .chips{display:flex;flex-wrap:wrap;gap:4px}
+  .chip{font-size:10px;padding:2px 7px;border-radius:10px;background:#00000044;border:1px solid var(--line);color:var(--mute)}
+  .chip.hi{color:var(--gold);border-color:var(--line2)}
+  .merc-status{position:absolute;top:8px;right:10px;font-size:10px;font-weight:700;color:var(--mute)}
+  .merc-status.on{color:var(--good)}
+  .merc-status.hurt{color:var(--bad)}
+  .lockbadge{position:absolute;top:8px;right:10px;font-size:14px}
+
+  /* ── 전투 컷(잡몹·보스) ── */
+  .raid-cut{width:96px;height:96px;border-radius:12px;border:1px solid var(--line2);object-fit:cover;flex:0 0 auto;background:var(--bg1)}
+  .raid-cut.boss{width:112px;height:112px}
 
   /* ── 온보딩(첫 진입 튜토리얼) 오버레이 ── */
-  .ob-highlight { box-shadow: 0 0 0 2px #c9853d, 0 0 18px #c9853d99 !important; border-color: #c9853d !important; }
+  .ob-highlight { box-shadow: 0 0 0 2px var(--amber), 0 0 18px rgba(201,133,61,.6) !important; border-color: var(--amber) !important; }
   #ob-overlay { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; pointer-events: none; }
   .ob-banner {
     pointer-events: auto; max-width: 480px; margin: 0 auto;
-    background: #2a2018; border: 2px solid #c9853d; border-bottom: none;
+    background: var(--panel); border: 2px solid var(--amber); border-bottom: none;
     border-radius: 12px 12px 0 0; padding: 12px 16px; box-shadow: 0 -4px 20px #000a;
   }
   .ob-modal-bg {
@@ -89,24 +157,24 @@
     display: flex; align-items: center; justify-content: center; pointer-events: auto;
   }
   .ob-modal {
-    background: #2a2018; border: 2px solid #c9853d; border-radius: 12px;
+    background: var(--panel); border: 2px solid var(--amber); border-radius: 12px;
     padding: 20px; max-width: 380px; margin: 16px; line-height: 1.7;
     max-height: 88vh; overflow-y: auto;
   }
   /* 인트로 4컷 프롤로그 */
   .ob-comic { display: block; width: 100%; max-height: 44vh; object-fit: contain;
-    border-radius: 10px; border: 1px solid #6b4a2e; margin: 2px 0 12px; }
-  .ob-speaker { color: #c9853d; font-weight: bold; }
-  .ob-narr { color: #80766a; font-style: italic; }
+    border-radius: 10px; border: 1px solid var(--line2); margin: 2px 0 12px; }
+  .ob-speaker { color: var(--amber); font-weight: bold; }
+  .ob-narr { color: var(--mute); font-style: italic; }
   .ob-line { margin: 6px 0; display: flex; align-items: flex-start; gap: 9px; }
   .ob-line.ob-narr { display: block; }
   .ob-face { width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto;
-    border: 2px solid #c9853d; background: #1c1510; box-shadow: 0 1px 4px #0006; }
+    border: 2px solid var(--amber); background: #1c1510; box-shadow: 0 1px 4px #0006; }
   .ob-text { flex: 1; padding-top: 2px; }
   /* 모달(인트로·졸업)에선 초상화를 약간 크게 */
   .ob-modal .ob-face { width: 56px; height: 56px; }
-  .ob-hint { margin-top: 10px; color: #7fb069; font-size: 13px; }
-  .ob-step { font-size: 12px; color: #80766a; margin-bottom: 4px; }
+  .ob-hint { margin-top: 10px; color: var(--good); font-size: 13px; }
+  .ob-step { font-size: 12px; color: var(--mute); margin-bottom: 4px; }
   .ob-banner button, .ob-modal button { width: 100%; margin: 10px 0 0; }
   /* 이벤트 리액션 스티커 토스트 (우하단 팝업) */
   .sticker-toast { position: fixed; right: 18px; bottom: 18px; z-index: 1500;
@@ -118,158 +186,187 @@
   @keyframes stickerPop { from { transform: scale(.4) translateY(22px); opacity: 0; }
                           to { transform: none; opacity: 1; } }
   @keyframes stickerOut { to { opacity: 0; transform: translateY(12px) scale(.95); } }
+
+  /* ── 반응형(§5) ── */
+  @media (max-width:480px){
+    .roster{grid-template-columns:1fr}
+    .stage-badge{display:none}
+    .tab{min-width:0;font-size:11px;padding:8px 4px}
+    .tab .em{font-size:16px}
+  }
+  @media (min-width:720px){
+    .roster{grid-template-columns:repeat(3,1fr)}
+  }
 </style>
 </head>
 <body>
 
 <h1>🍺 Last Call — 양조소</h1>
 
+<!-- ─────────── 상단 바(고정 요약) ─────────── -->
+<div class="topbar">
+  <div class="logo">🍺 Last Call</div>
+  <span class="stage-badge" id="tb-stage"></span>
+  <div class="spacer"></div>
+  <div class="stat"><span>🪙</span><span class="v gold" id="tb-funds">0</span></div>
+  <div class="stat"><span>⭐</span><span class="v rep" id="tb-rep">0</span></div>
+</div>
+
+<!-- ─────────── 탭 바(5탭 IA) ─────────── -->
+<div class="tabs" id="ui-tabs">
+  <div class="tab" data-tabbtn="주점"><span class="em">🏰</span>주점</div>
+  <div class="tab" data-tabbtn="생산"><span class="em">⚗️</span>생산</div>
+  <div class="tab" data-tabbtn="용병"><span class="em">👥</span>용병</div>
+  <div class="tab" data-tabbtn="전투"><span class="em">⚔️</span>전투</div>
+  <div class="tab" data-tabbtn="도감"><span class="em">📖</span>도감</div>
+</div>
+
 <!-- ─────────── 주점 / 성장 (명성·자금·승급) ─────────── -->
-<div class="card" id="card-progress">
+<div class="card" id="card-progress" data-tab="주점">
   <div class="label">🏰 주점 / 성장</div>
   <div id="ui-progress"></div>
 </div>
 
 <!-- ─────────── 이벤트 & 날씨 ─────────── -->
-<div class="card" id="card-events">
+<div class="card" id="card-events" data-tab="주점">
   <div class="label">🌦️ 이벤트 & 날씨 <span style="font-weight:normal;font-size:12px">(12시간마다 날씨 · 일일/특별 이벤트)</span></div>
   <div id="ui-events"></div>
 </div>
 
 <!-- ─────────── 손님 · 만족도 · 진상 ─────────── -->
-<div class="card" id="card-customers">
+<div class="card" id="card-customers" data-tab="주점">
   <div class="label">😊 손님 / 만족도 <span style="font-weight:normal;font-size:12px">(접객 명성 배수 · 손님 종류 단골 · 진상 대응)</span></div>
   <div id="ui-customers"></div>
 </div>
 
 <!-- ─────────── 소문내기 (명성 활동) ─────────── -->
-<div class="card" id="card-promo">
+<div class="card" id="card-promo" data-tab="주점">
   <div class="label">📣 소문내기 <span style="font-weight:normal;font-size:12px">(용병 배치 → 시간당 명성 · 배치 50h면 소문 참새 펫)</span></div>
   <div id="ui-promo"></div>
 </div>
 
 <!-- ─────────── 왕국 성장 (무용담·술통 기부) ─────────── -->
-<div class="card" id="card-kingdom">
+<div class="card" id="card-kingdom" data-tab="주점">
   <div class="label">🏛️ 왕국 성장 <span style="font-weight:normal;font-size:12px">(자원 기부 → 영구 보너스 · Lv 1~20)</span></div>
   <div id="ui-kingdom"></div>
 </div>
 
 <!-- ─────────── 의뢰 게시판 (주간 의뢰) ─────────── -->
-<div class="card" id="card-orders">
+<div class="card" id="card-orders" data-tab="주점">
   <div class="label">📜 의뢰 게시판 <span style="font-weight:normal;font-size:12px">(주간 5건 · 조건 충족 시 완료)</span></div>
   <div id="ui-orders"></div>
 </div>
 
 <!-- ─────────── 습격 방어 (전투) ─────────── -->
-<div class="card" id="card-combat">
+<div class="card" id="card-combat" data-tab="전투">
   <div class="label">⚔️ 습격 방어 <span style="font-weight:normal;font-size:12px">(영입 용병 전원이 방어 · 전투 버프 반영)</span></div>
   <div id="ui-combat"></div>
 </div>
 
 <!-- ─────────── 던전 원정 ─────────── -->
-<div class="card" id="card-dungeon">
+<div class="card" id="card-dungeon" data-tab="전투">
   <div class="label">🗝️ 던전 원정 <span style="font-weight:normal;font-size:12px">(파티 파견 · 층 격파 → 자금·재료·카드 · 열쇠 소모)</span></div>
   <div id="ui-dungeon"></div>
 </div>
 
 <!-- ─────────── 장비 (무기·방어구·세트) ─────────── -->
-<div class="card" id="card-equipment">
+<div class="card" id="card-equipment" data-tab="전투">
   <div class="label">⚔️ 장비 <span style="font-weight:normal;font-size:12px">(던전 드롭 · 용병당 무기·갑옷·투구·장신구 4슬롯 · 세트 2/4피스)</span></div>
   <div id="ui-equipment"></div>
 </div>
 
 <!-- ─────────── 단골 카드 & 펫 도감 ─────────── -->
-<div class="card" id="card-cardspets">
+<div class="card" id="card-cardspets" data-tab="도감">
   <div class="label">📇 단골 & 펫 도감 <span style="font-weight:normal;font-size:12px">(조건 달성·습격 격퇴로 수집 · 보유 보너스 영구 합산)</span></div>
   <div id="ui-cardspets"></div>
 </div>
 
 <!-- ─────────── 재료 창고 (여러 칸) ─────────── -->
-<div class="card" id="card-materials">
+<div class="card" id="card-materials" data-tab="생산">
   <div class="label">📦 재료 창고</div>
   <div class="grid3" id="ui-materials"></div>
 </div>
 
 <!-- ─────────── 용병 로스터 (공용 풀) ─────────── -->
-<div class="card" id="card-roster">
+<div class="card" id="card-roster" data-tab="용병">
   <div class="label">👥 용병 <span style="font-weight:normal;font-size:12px">(공용 풀 · 1명=1작업)</span></div>
-  <div class="grid3" id="ui-roster"></div>
+  <div class="roster" id="ui-roster"></div>
 </div>
 
 <!-- ─────────── 채집 활동 (용병 배치) ─────────── -->
-<div class="card" id="card-gather">
+<div class="card" id="card-gather" data-tab="생산">
   <div class="label">⛏️ 채집 활동 <span style="font-weight:normal;font-size:12px">(용병을 배치하면 시간당 재료 생산)</span></div>
   <div id="ui-gathering"></div>
 </div>
 
 <!-- ─────────── 발효 슬롯 (용병 배치 + 동시 양조) ─────────── -->
-<div class="card" id="card-brew">
+<div class="card" id="card-brew" data-tab="생산">
   <div class="label">🍺 발효 슬롯 <span style="font-weight:normal;font-size:12px">(주점 단계 <span id="ui-stage">1</span> · 슬롯 <span id="ui-slotcount">1</span>칸)</span></div>
   <div id="ui-brew-slots"></div>
 </div>
 
 <!-- ─────────── 요리 / 안주 (제조 + 비치) ─────────── -->
-<div class="card" id="card-cooking">
+<div class="card" id="card-cooking" data-tab="생산">
   <div class="label">🍢 요리 / 안주 <span style="font-weight:normal;font-size:12px">(요리 슬롯 제조 · 비치 2칸 상시 효과 · 술버프와 별개)</span></div>
   <div id="ui-cooking"></div>
 </div>
 
 <!-- ─────────── 대장일 (장비 제작) ─────────── -->
-<div class="card" id="card-smithing">
+<div class="card" id="card-smithing" data-tab="생산">
   <div class="label">🔨 대장일 / 제작 <span style="font-weight:normal;font-size:12px">(부위·등급 지정 생산 → 장비 도감 · 던전 드롭과 공존)</span></div>
   <div id="ui-smithing"></div>
 </div>
 
 <!-- ─────────── 원정 (파견) ─────────── -->
-<div class="card" id="card-expedition">
+<div class="card" id="card-expedition" data-tab="생산">
   <div class="label">🧭 원정 / 파견 <span style="font-weight:normal;font-size:12px">(용병 파견 → 시간 경과 → 자금·유물 · 전투 없음)</span></div>
   <div id="ui-expedition"></div>
 </div>
 
 <!-- ─────────── 자동 증류탑 (샘플링) ─────────── -->
-<div class="card" id="card-distillery">
+<div class="card" id="card-distillery" data-tab="생산">
   <div class="label">🏭 자동 증류탑 <span style="font-weight:normal;font-size:12px">(샘플 등록 → 매시간 무료 자동 생산 · 용병·재료 미점유 · World 3 해금)</span></div>
   <div id="ui-distillery"></div>
 </div>
 
 <!-- ─────────── 비밀 양조 가마솥 (연금·거품) ─────────── -->
-<div class="card" id="card-alchemy">
+<div class="card" id="card-alchemy" data-tab="생산">
   <div class="label">⚗️ 비밀 양조 가마솥 <span style="font-weight:normal;font-size:12px">(재료 투입 → 거품 레벨업 → 영구 패시브 · World 2 해금)</span></div>
   <div id="ui-alchemy"></div>
 </div>
 
 <!-- ─────────── 명예의 망토 (스킬 Lv.99 케이프) ─────────── -->
-<div class="card" id="card-cloaks">
+<div class="card" id="card-cloaks" data-tab="용병">
   <div class="label">🎖️ 명예의 망토 <span style="font-weight:normal;font-size:12px">(스킬 트랙 Lv.99 달성 → 계정 영구 퍽 · 6트랙)</span></div>
   <div id="ui-cloaks"></div>
 </div>
 
 <!-- ─────────── 동맹 (5세력) ─────────── -->
-<div class="card" id="card-alliances">
+<div class="card" id="card-alliances" data-tab="주점">
   <div class="label">🤝 동맹 <span style="font-weight:normal;font-size:12px">(명성 5000 해금 · 조건 충족 시 체결 → 영구 보너스 · 5세력)</span></div>
   <div id="ui-alliances"></div>
 </div>
 
 <!-- ─────────── 용병 관계 (친분) ─────────── -->
-<div class="card" id="card-relationship">
+<div class="card" id="card-relationship" data-tab="용병">
   <div class="label">💞 용병 관계 <span style="font-weight:normal;font-size:12px">(배치 근무로 친분 상승 → Lv.3/5 보상 · 6인)</span></div>
   <div id="ui-relationship"></div>
 </div>
 
 <!-- ─────────── 스킬 (용병별 양조·조달 레벨) ─────────── -->
-<div class="card" id="card-skills">
+<div class="card" id="card-skills" data-tab="용병">
   <div class="label">📈 스킬 <span style="font-weight:normal;font-size:12px">(활동하면 XP 적립·레벨업 → 속도·산출 ↑)</span></div>
   <div id="ui-skills"></div>
 </div>
 
 <!-- ─────────── 술 창고 (종류별 재고, 읽기 전용) ─────────── -->
-<div class="card" id="card-drinkstock">
+<div class="card" id="card-drinkstock" data-tab="생산">
   <div class="label">🍶 술 창고 <span style="font-weight:normal;font-size:12px">(종류당 최대 99병)</span></div>
   <div class="drink-list" id="ui-drink-list"></div>
 </div>
 
 <!-- ─────────── 버프 (술 따르기) ─────────── -->
-<div class="card" id="card-buff">
+<div class="card" id="card-buff" data-tab="생산">
   <div class="label">🍹 버프 <span style="font-weight:normal;font-size:12px">(술을 따르면 1병 소비·효과 발동 · 동시 3슬롯 · 같은 계열 중복 불가)</span></div>
   <div id="ui-buffs"></div>
 </div>
@@ -2143,24 +2240,45 @@ function charOptions(currentId, kind) {
   return html;
 }
 
+/* ── 아이콘 매니페스트 (아트 디렉션 §6) ─────────────────────────────────────
+   art/icons/**로 외주 파일이 들어오면 이 매핑에 경로만 추가 — 호출부(iconTag) 수정 불필요.
+   지금은 비어 있어 전부 폴백(이모지/텍스트)으로 표시. */
+const ICON_MANIFEST = { mat: {}, drink: {}, skill: {} };
+function iconTag(cat, key, fallback) {
+  const p = ICON_MANIFEST[cat] && ICON_MANIFEST[cat][key];
+  return p ? `<img class="ico" src="${p}" alt="">` : `<span class="ico-fallback">${fallback != null ? fallback : ""}</span>`;
+}
 function renderMaterials() {
   document.getElementById("ui-materials").innerHTML =
-    ALL_MATERIALS.map(m => `<div class="cell"><span class="k">${m}</span><span class="v">${Math.floor(state.materials[m] || 0)}</span></div>`).join("");
+    ALL_MATERIALS.map(m => `<div class="cell"><span class="k">${iconTag("mat", m, "📦")} ${m}</span><span class="v">${Math.floor(state.materials[m] || 0)}</span></div>`).join("");
 }
 
+// 용병 로스터 — 원형 초상화 카드(아트 디렉션 §3-2). 로직(배치·부상·해금)은 기존 그대로, 표시만 리스킨.
 function renderRoster() {
   const assigned = assignedCharIds();
-  document.getElementById("ui-roster").innerHTML = Object.keys(CHARACTERS).map(id => {
-    const c = CHARACTERS[id];
+  const available = stageMercSlots(state.tavernStage);
+  document.getElementById("ui-roster").innerHTML = Object.keys(CHARACTERS).map((id, idx) => {
+    const c = CHARACTERS[id], locked = idx >= available, busy = assigned.has(id);
     let job = "대기";
     state.brewSlots.forEach((s, i) => { if (s.charId === id) job = `발효 ${i + 1}번`; });
     for (const act in state.gatherAssign) if (state.gatherAssign[act] === id) job = `채집·${act}`;
     const injured = isInjured(id);
     if (injured) job = "🤕 부상";
-    const color = injured ? "#d96b6b" : assigned.has(id) ? "#7fb069" : "#80766a";
-    return `<div class="cell${assigned.has(id) ? " busy" : ""}">
-      <span class="k">${c.name}${c.brewmaster ? " ⭐" : ""}</span>
-      <span class="v" style="font-weight:normal;font-size:12px;color:${color}">${job}</span>
+    const statusClass = injured ? "hurt" : busy ? "on" : "";
+    const face = OB_PORTRAIT[id];   // 온보딩 초상화 매핑 재사용(중복 매핑 금지)
+    const bw = skillLv(id, "양조"), gd = skillLv(id, "조달"), ct = skillLv(id, "전투");
+    return `<div class="merc${busy ? " busy" : ""}${locked ? " locked" : ""}">
+      ${face ? `<img class="face" src="${face}" alt="${c.name}">` : `<div class="face"></div>`}
+      <div>
+        <div class="nm">${c.name}${c.brewmaster ? " ⭐" : ""}</div>
+        <div class="cl">${c.class}</div>
+        <div class="chips">
+          <span class="chip hi">${c.combatSkill} ${ct}</span>
+          <span class="chip">조달 ${gd}</span>
+          <span class="chip">양조 ${bw}</span>
+        </div>
+      </div>
+      ${locked ? `<span class="lockbadge">🔒</span>` : `<span class="merc-status ${statusClass}">${job}</span>`}
     </div>`;
   }).join("");
 }
@@ -2175,13 +2293,14 @@ function renderGather() {
     const lv = cid ? skillLv(cid, "조달") : null;        // 배치 용병 조달 레벨(없으면 null)
     const yieldsText = Object.entries(a.yields).map(([m, y]) => {
       const locked = lv !== null && lv < (y.unlock_lv || 1);  // 레벨 부족 → 잠금 표시
-      return locked ? `<span style="color:#80766a">${m} 🔒Lv${y.unlock_lv}</span>` : `${m} ${y.rate_per_h}/h`;
+      return locked ? `<span style="color:var(--mute)">${m} 🔒Lv${y.unlock_lv}</span>` : `${m} ${y.rate_per_h}/h`;
     }).join(", ");
     const mult = gatherBuffMultiplier(id);
-    const buffTag = mult > 1 ? ` · <span style="color:#7fb069">버프 ×${mult.toFixed(2)}</span>` : "";
+    const buffTag = mult > 1 ? ` · <span style="color:var(--good)">버프 ×${mult.toFixed(2)}</span>` : "";
     return `<div class="gather-row${c ? " active" : ""}">
       <div class="gather-head">
         <span class="gather-name">${id}${c ? ` · ${c.name} 채집 중` : ""}</span>
+        ${c && OB_PORTRAIT[cid] ? `<img class="slot-face" src="${OB_PORTRAIT[cid]}" alt="${c.name}">` : ""}
         <select class="gather-char" data-act="${id}">${charOptions(cid, "gather")}</select>
       </div>
       <div class="gather-sub">${yieldsText}${buffTag}</div>
@@ -2202,6 +2321,7 @@ function renderBrewSlots() {
       <div class="slot-head"><span class="slot-name">발효 슬롯 ${i + 1}</span><span class="slot-status">${v.status}</span></div>
       <div class="slot-controls">
         <select class="slot-drink" data-i="${i}">${drinkOpts}</select>
+        ${slot.charId && OB_PORTRAIT[slot.charId] ? `<img class="slot-face" src="${OB_PORTRAIT[slot.charId]}" alt="">` : ""}
         <select class="slot-char" data-i="${i}">${charOptions(slot.charId, "brew")}</select>
       </div>
       <div class="bar-bg"><div class="bar-fill" style="width:${v.pct}%"></div></div>
@@ -2218,7 +2338,7 @@ function renderBrewSlots() {
 function renderDrinkStock() {
   document.getElementById("ui-drink-list").innerHTML = Object.keys(DRINKS).map(id => {
     const d = DRINKS[id], stock = state.drinks[id] || 0;
-    return `<div class="drink-row"><span class="drink-name">${d.name}</span><span class="drink-stock">${stock} / ${STOCK_MAX}</span></div>`;
+    return `<div class="drink-row"><span class="drink-name">${iconTag("drink", id, "🍶")} ${d.name}</span><span class="drink-stock">${stock} / ${STOCK_MAX}</span></div>`;
   }).join("");
 }
 
@@ -2288,9 +2408,14 @@ function renderProgress() {
   const st = STAGES[state.tavernStage - 1];
   const tier = REPUTATION_TIERS.find(t => state.reputation >= t.min && (t.max == null || state.reputation <= t.max)) || REPUTATION_TIERS[0];
   const next = state.tavernStage < 6 ? STAGES[state.tavernStage] : null;
+  // 상단 바(고정) 동기화 — 단계·자금·명성 요약
+  const tbStage = document.getElementById("tb-stage"), tbFunds = document.getElementById("tb-funds"), tbRep = document.getElementById("tb-rep");
+  if (tbStage) tbStage.textContent = `${st.stage}단계 · ${st.name} · World ${st.world}`;
+  if (tbFunds) tbFunds.textContent = Math.floor(state.funds).toLocaleString();
+  if (tbRep) tbRep.textContent = Math.floor(state.reputation).toLocaleString();
   let html = `
-    <div class="row"><span class="label">주점 단계</span><span class="value">${st.stage}단계 · ${st.name} <span style="color:#80766a;font-weight:normal">(World ${st.world})</span></span></div>
-    <div class="row"><span class="label">명성</span><span class="value">${Math.floor(state.reputation)} <span style="color:#c9853d">[${tier.title}]</span></span></div>
+    <div class="row"><span class="label">주점 단계</span><span class="value">${st.stage}단계 · ${st.name} <span style="color:var(--mute);font-weight:normal">(World ${st.world})</span></span></div>
+    <div class="row"><span class="label">명성</span><span class="value">${Math.floor(state.reputation)} <span style="color:var(--amber)">[${tier.title}]</span></span></div>
     <div class="row"><span class="label">자금</span><span class="value">${Math.floor(state.funds)}</span></div>
     <div class="row"><span class="label">용병/슬롯</span><span class="value">용병 ${stageMercSlots(state.tavernStage)}명 · 발효·채집 ${slotCount()}칸</span></div>`;
   if (next) {
@@ -2299,13 +2424,13 @@ function renderProgress() {
     const parts = [];
     if (next.reputation_min > 0) {
       const ok = state.reputation >= next.reputation_min;
-      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">명성 ${Math.floor(state.reputation)}/${next.reputation_min}(게이트)</span>`);
+      parts.push(`<span style="color:${ok ? "var(--good)" : "var(--bad)"}">명성 ${Math.floor(state.reputation)}/${next.reputation_min}(게이트)</span>`);
     }
     Object.entries(next.build_cost).forEach(([k, v]) => {
       if (k === "명성") return;
       const need = buildCostAmount(k, v);   // 확장 무용담 절감 반영
       const ok = costHave(k) >= need;
-      parts.push(`<span style="color:${ok ? "#7fb069" : "#d96b6b"}">${k} ${Math.floor(costHave(k))}/${need}</span>`);
+      parts.push(`<span style="color:${ok ? "var(--good)" : "var(--bad)"}">${k} ${Math.floor(costHave(k))}/${need}</span>`);
     });
     const costStr = parts.join(", ");
     html += `<div class="gather-sub" style="margin:8px 0 4px">▶ ${next.stage}단계 '${next.name}' 승급 필요: ${costStr}</div>
@@ -2433,7 +2558,7 @@ function renderExpedition() {
     const can = e.charId && CHARACTERS[e.charId] && unlocked;
     html += `<div style="margin-top:6px"><button class="exp-go"${can ? "" : " disabled"}>${!e.charId ? "용병 배치 필요" : !unlocked ? `원정 Lv${d.reqLv} 필요` : "파견 출발"}</button></div>`;
   }
-  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">원정 완료 ${e.completedCount}회 · 유물 ${Math.floor(state.materials["유물"] || 0)}</div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:var(--mute)">원정 완료 ${e.completedCount}회 · 유물 ${Math.floor(state.materials["유물"] || 0)}</div>`;
   box.innerHTML = html;
   const ec = box.querySelector(".exp-char"); if (ec) ec.onchange = () => assignExp(ec.value);
   const ed = box.querySelector(".exp-dispatch"); if (ed) ed.onchange = () => setExpDispatch(ed.value);
@@ -2463,7 +2588,7 @@ function renderDistillery() {
   const d = state.distillery;
   // 미해금(주점 4단계 미만)
   if (state.tavernStage < DISTILLERY.unlock_stage_min) {
-    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 주점 4단계(World 3 · 요새 주점 · 명성 5000) 도달 시 해금됩니다.</div>`;
+    box.innerHTML = `<div class="gather-sub" style="color:var(--mute)">🔒 주점 4단계(World 3 · 요새 주점 · 명성 5000) 도달 시 해금됩니다.</div>`;
     return;
   }
   // 미건립
@@ -2484,8 +2609,8 @@ function renderDistillery() {
     if (slot) {
       const nm = slot.kind === "drink" ? (DRINKS[slot.key] ? DRINKS[slot.key].name : slot.key) : slot.key;
       const capped = slot.kind === "material" ? (state.materials[slot.key] || 0) >= MAT_CAP : (state.drinks[slot.key] || 0) >= STOCK_MAX;
-      cur = `${nm} <b>${(slot.rate * ratio).toFixed(1)}/h</b> <span style="color:#80766a">(샘플 ${slot.rate.toFixed(1)}/h · ${slot.by})${capped ? " · 창고 가득 정지" : ""}</span>`;
-    } else cur = `<span style="color:#80766a">빈 슬롯 — 샘플 미등록</span>`;
+      cur = `${nm} <b>${(slot.rate * ratio).toFixed(1)}/h</b> <span style="color:var(--mute)">(샘플 ${slot.rate.toFixed(1)}/h · ${slot.by})${capped ? " · 창고 가득 정지" : ""}</span>`;
+    } else cur = `<span style="color:var(--mute)">빈 슬롯 — 샘플 미등록</span>`;
     html += `<div class="slot-row${active ? " active" : ""}"><div class="slot-head"><span class="slot-name">슬롯 ${i + 1}</span><span class="slot-status">${cur}</span></div>
       <div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
         <select class="dist-merc">${distMercOptionsHtml()}</select>
@@ -2500,7 +2625,7 @@ function renderDistillery() {
     const label = !gateOk ? `Lv.${next.lv} 증설 — 주점 ${next.stage_min}단계 필요` : `Lv.${next.lv} 증설 (${distCostText(next.cost)})`;
     html += `<div style="margin-top:6px"><button class="dist-up"${gateOk && payOk ? "" : " disabled"}>${label}</button></div>`;
   } else {
-    html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">최대 레벨(6) 달성 · 90% 상한은 보류 시스템(샘플링 숙련·무용담·펫 등) 도입 후</div>`;
+    html += `<div class="gather-sub" style="margin-top:6px;color:var(--mute)">최대 레벨(6) 달성 · 90% 상한은 보류 시스템(샘플링 숙련·무용담·펫 등) 도입 후</div>`;
   }
   box.innerHTML = html;
   box.querySelectorAll(".dist-take").forEach(b => b.onclick = () => {
@@ -2516,7 +2641,7 @@ function renderDistillery() {
 function renderAlchemy() {
   const box = document.getElementById("ui-alchemy"); if (!box) return;
   if (state.tavernStage < 3) {   // 첫 가마솥(전투·조달) = 주점 3단계(World 2)
-    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 주점 3단계(World 2 · 길드 주점) 도달 시 첫 가마솥(전투·조달)이 열립니다.</div>`;
+    box.innerHTML = `<div class="gather-sub" style="color:var(--mute)">🔒 주점 3단계(World 2 · 길드 주점) 도달 시 첫 가마솥(전투·조달)이 열립니다.</div>`;
     return;
   }
   let html = "";
@@ -2524,14 +2649,14 @@ function renderAlchemy() {
     const bubbles = ALCHEMY.bubbles.filter(b => b.cauldron === c.color);
     if (!bubbles.length) return;   // 게시된 거품이 없는 가마솥(전부 보류)이면 생략
     const unlocked = alchemyCauldronUnlocked(c.color);
-    html += `<div class="gather-sub" style="margin:8px 0 4px"><b>${c.icon} ${c.domain} 가마솥</b>${unlocked ? "" : ` <span style="color:#80766a">🔒 주점 ${c.stage_min}단계 해금</span>`}</div>`;
+    html += `<div class="gather-sub" style="margin:8px 0 4px"><b>${c.icon} ${c.domain} 가마솥</b>${unlocked ? "" : ` <span style="color:var(--mute)">🔒 주점 ${c.stage_min}단계 해금</span>`}</div>`;
     if (!unlocked) return;
     bubbles.forEach(b => {
       const lv = bubbleLevel(b.id), cost = bubbleCost(b, lv), payOk = bubbleCanPay(cost);
       const eff = lv > 0 ? bubbleEffectText(b, lv) : "미발동";
       html += `<div class="slot-row${lv > 0 ? " active" : ""}"><div class="slot-head"><span class="slot-name">${b.id} 거품 Lv.${lv}</span><span class="slot-status">${b.effect} ${eff}</span></div>
         <div class="gather-sub" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
-          <span style="color:#80766a">다음 Lv: ${alchemyCostText(cost)}</span>
+          <span style="color:var(--mute)">다음 Lv: ${alchemyCostText(cost)}</span>
           <button class="alc-up" data-id="${b.id}"${payOk ? "" : " disabled"}>레벨업</button>
         </div></div>`;
     });
@@ -2552,19 +2677,19 @@ function renderCloaks() {
     if (legendary) status = `🌟 전설 · ${c.legendary.effect}`;
     else if (owned) status = `✅ 획득 · ${c.effect} (마스터리 ${Math.floor(masteryPct(c.track))}%)`;
     else status = `🔒 ${c.track} Lv.${best}/99${bestName ? ` (${bestName})` : ""}`;
-    const badge = readyForLegendary ? `<span style="margin-left:6px;color:#c9853d;font-size:12px">전설 승급 가능</span>` : "";
+    const badge = readyForLegendary ? `<span style="margin-left:6px;color:var(--amber);font-size:12px">전설 승급 가능</span>` : "";
     html += `<div class="slot-row${owned ? " active" : ""}"><div class="slot-head"><span class="slot-name">${legendary ? c.legendary.name : c.name}${badge}</span><span class="slot-status">${status}</span></div></div>`;
   });
   const omni = state.cloaks && state.cloaks.omni;
   const legendCount = CLOAKS.list.filter(c => cloakLegendary(c.track)).length;
-  html += `<div class="gather-sub" style="margin-top:6px;color:${omni ? "#c9853d" : "#80766a"}">${omni ? "👑 만능 망토 획득 — 전 스킬 +15% + 칭호 '살아있는 전설'" : `만능 망토: 전 6트랙 전설 달성 시 해금 (현재 ${legendCount}/6)`}</div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:${omni ? "var(--amber)" : "var(--mute)"}">${omni ? "👑 만능 망토 획득 — 전 스킬 +15% + 칭호 '살아있는 전설'" : `만능 망토: 전 6트랙 전설 달성 시 해금 (현재 ${legendCount}/6)`}</div>`;
   box.innerHTML = html;
 }
 /* ── 동맹 렌더 (alliances.js 로직 사용) ─────────────────────────────────────── */
 function renderAlliances() {
   const box = document.getElementById("ui-alliances"); if (!box) return;
   if (!alliancesUnlocked()) {
-    box.innerHTML = `<div class="gather-sub" style="color:#80766a">🔒 명성 ${ALLIANCES.unlock_reputation}(유명 길드 주점) 도달 시 열립니다. 현재 ${Math.floor(state.reputation || 0)}</div>`;
+    box.innerHTML = `<div class="gather-sub" style="color:var(--mute)">🔒 명성 ${ALLIANCES.unlock_reputation}(유명 길드 주점) 도달 시 열립니다. 현재 ${Math.floor(state.reputation || 0)}</div>`;
     return;
   }
   let html = `<div class="gather-sub">동맹 ${allianceFormedCount()}/${ALLIANCES.list.length} 체결</div>`;
@@ -2587,12 +2712,12 @@ function renderRelationships() {
     if (!CHARACTERS[id] || !isRecruited(id)) continue;
     const lv = relLevel(id), m = RELATIONSHIP.milestones[id];
     const next = relNextThreshold(id), pts = Math.floor(relPoints(id));
-    const lv3 = lv >= 3 ? `<span style="color:#7fb069">✅ ${m.lv3.text}</span>` : `<span style="color:#80766a">Lv.3: ${m.lv3.text}</span>`;
+    const lv3 = lv >= 3 ? `<span style="color:var(--good)">✅ ${m.lv3.text}</span>` : `<span style="color:var(--mute)">Lv.3: ${m.lv3.text}</span>`;
     const prog = next ? `${pts}/${next}h` : "MAX";
     html += `<div class="slot-row${lv >= 3 ? " active" : ""}"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name} 관계 Lv.${lv}</span><span class="slot-status">${lv3} · 근무 ${prog}</span></div></div>`;
   }
-  if (!html) html = `<div class="gather-sub" style="color:#80766a">영입된 용병을 작업에 배치하면 친분이 쌓입니다.</div>`;
-  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">진 Lv.5 → 충견 무사 펫. 그 외 Lv.5 서사 이벤트는 보류.</div>`;
+  if (!html) html = `<div class="gather-sub" style="color:var(--mute)">영입된 용병을 작업에 배치하면 친분이 쌓입니다.</div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:var(--mute)">진 Lv.5 → 충견 무사 펫. 그 외 Lv.5 서사 이벤트는 보류.</div>`;
   box.innerHTML = html;
 }
 function smithCharOptions() {
@@ -2679,8 +2804,8 @@ function renderCooking() {
   for (let i = 0; i < COOKING.snack_slots; i++) sel += `<select class="snack-slot" data-i="${i}">${snackSlotOptions(i)}</select> `;
   html += `<div style="display:flex;gap:6px;flex-wrap:wrap">${sel}</div>`;
   const stock = COOKING.snacks.filter(sn => (state.snacks[sn.name] || 0) > 0);
-  html += `<div class="gather-sub" style="margin:8px 0 4px">📦 안주 재고${totalSnackStock() === 0 ? ` <span style="color:#d96b6b">(부족! 만족도 -${COOKING.snack_stock_penalty}/h)</span>` : ""}</div>`;
-  html += `<div class="grid3">` + (stock.length ? stock.map(sn => `<div class="cell"><span class="k">${sn.name}</span><span class="v">${state.snacks[sn.name]}</span></div>`).join("") : `<div class="gather-sub" style="color:#80766a">제조한 안주 없음</div>`) + `</div>`;
+  html += `<div class="gather-sub" style="margin:8px 0 4px">📦 안주 재고${totalSnackStock() === 0 ? ` <span style="color:var(--bad)">(부족! 만족도 -${COOKING.snack_stock_penalty}/h)</span>` : ""}</div>`;
+  html += `<div class="grid3">` + (stock.length ? stock.map(sn => `<div class="cell"><span class="k">${sn.name}</span><span class="v">${state.snacks[sn.name]}</span></div>`).join("") : `<div class="gather-sub" style="color:var(--mute)">제조한 안주 없음</div>`) + `</div>`;
   box.innerHTML = html;
   const cc = box.querySelector(".cook-char"); if (cc) cc.onchange = () => assignCook(cc.value);
   const cs = box.querySelector(".cook-snack"); if (cs) cs.onchange = () => setCookSnack(cs.value);
@@ -2718,24 +2843,24 @@ function renderPromo() {
   const rateH = Math.round(PROMO_REP_PER_H * repGainMult());
   let html = `<div class="gather-sub">${sm ? `📣 <b>${CHARACTERS[sm].name}</b> 소문내는 중 — 명성 +${rateH}/h` : "용병을 배치하면 시간당 명성을 법니다."}</div>`;
   html += `<div style="margin-top:4px"><select class="promo-assign">${promoAssignOptions()}</select></div>`;
-  html += `<div class="gather-sub" style="margin-top:6px;color:#80766a">배치 누적 ${Math.floor(state.promoHours || 0)}h${(state.promoHours || 0) >= 50 || state.pets["소문 참새"] ? " · 🐾 소문 참새 조건 달성" : " / 50h → 소문 참새 펫"}</div>`;
+  html += `<div class="gather-sub" style="margin-top:6px;color:var(--mute)">배치 누적 ${Math.floor(state.promoHours || 0)}h${(state.promoHours || 0) >= 50 || state.pets["소문 참새"] ? " · 🐾 소문 참새 조건 달성" : " / 50h → 소문 참새 펫"}</div>`;
   box.innerHTML = html;
   const pa = box.querySelector(".promo-assign"); if (pa) pa.onchange = () => assignPromo(pa.value);
 }
 function renderCustomers() {
   const box = document.getElementById("ui-customers"); if (!box) return;
   const s = Math.round(state.satisfaction), base = Math.round(satisfactionBaseline()), mult = satisfactionRepMult();
-  const color = s >= 76 ? "#7fb069" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "#d96b6b";
-  let html = `<div class="row" style="margin:0 0 2px"><span class="label">😊 만족도</span><span class="value"><span class="sat-num">${s}</span>/100 <span style="color:#80766a;font-weight:normal;font-size:12px">(접객 명성 ×<span class="sat-mult">${mult.toFixed(2)}</span>)</span></span></div>`;
+  const color = s >= 76 ? "var(--good)" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "var(--bad)";
+  let html = `<div class="row" style="margin:0 0 2px"><span class="label">😊 만족도</span><span class="value"><span class="sat-num">${s}</span>/100 <span style="color:var(--mute);font-weight:normal;font-size:12px">(접객 명성 ×<span class="sat-mult">${mult.toFixed(2)}</span>)</span></span></div>`;
   html += `<div class="bar-bg"><div class="bar-fill sat-bar" style="width:${s}%;background:${color}"></div></div>`;
-  html += `<div class="gather-sub" style="margin-top:3px">기준선 ${base} · 시간당 ±${SAT.drift_per_hour} 수렴${anyDrinkSoldOut() ? ` · <span style="color:#d96b6b">술 품절 -${SAT.dec.품절}/h</span>` : ""}</div>`;
-  html += `<div class="gather-sub" style="margin:8px 0 4px">🤝 접객 담당 <span style="color:#80766a">(만족도 +/h · 진상 자동 대응)</span></div>`;
+  html += `<div class="gather-sub" style="margin-top:3px">기준선 ${base} · 시간당 ±${SAT.drift_per_hour} 수렴${anyDrinkSoldOut() ? ` · <span style="color:var(--bad)">술 품절 -${SAT.dec.품절}/h</span>` : ""}</div>`;
+  html += `<div class="gather-sub" style="margin:8px 0 4px">🤝 접객 담당 <span style="color:var(--mute)">(만족도 +/h · 진상 자동 대응)</span></div>`;
   html += `<select class="serve-assign">${serveAssignOptions()}</select>`;
   { const sm = serveMerc(), sela = sm && CHARACTERS[sm].class === "해결사";
     const rateH = Math.round(CREDIT.recover_rate_per_h * (sela ? CREDIT.sela_mult : 1) * (1 + creditRecoveryBonus()) * 100);
-    html += `<div class="gather-sub" style="margin-top:6px">💳 외상 장부 <b>${Math.round(state.creditLedger || 0).toLocaleString()}</b> <span style="color:#80766a">(접대 ${Math.round(CREDIT.accrual * 100)}% 이연 · 회수 ${rateH}%/h${sela ? " · 해결사 ×2" : ""})</span></div>`; }
+    html += `<div class="gather-sub" style="margin-top:6px">💳 외상 장부 <b>${Math.round(state.creditLedger || 0).toLocaleString()}</b> <span style="color:var(--mute)">(접대 ${Math.round(CREDIT.accrual * 100)}% 이연 · 회수 ${rateH}%/h${sela ? " · 해결사 ×2" : ""})</span></div>`; }
   html += `<div class="gather-sub" style="margin:8px 0 4px">🍻 손님 종류 접대 (30명 → 단골)</div>`;
-  html += `<div class="grid3">` + ["용병", "상인", "마법사"].map(t => { const n = state.customerServes[t] || 0, done = cardOwned(CUSTOMERS.card_link[t]); return `<div class="cell"><span class="k">${t}</span><span class="v" style="font-weight:normal;font-size:11px;color:${done ? "#7fb069" : "#80766a"}">${Math.min(n, 30)}/30${done ? " ✅" : ""}</span></div>`; }).join("") + `</div>`;
+  html += `<div class="grid3">` + ["용병", "상인", "마법사"].map(t => { const n = state.customerServes[t] || 0, done = cardOwned(CUSTOMERS.card_link[t]); return `<div class="cell"><span class="k">${t}</span><span class="v" style="font-weight:normal;font-size:11px;color:${done ? "var(--good)" : "var(--mute)"}">${Math.min(n, 30)}/30${done ? " ✅" : ""}</span></div>`; }).join("") + `</div>`;
   if (state.nuisance.active) {
     const sm = serveMerc();
     html += `<div class="slot-row active" style="margin-top:8px"><div class="slot-head"><span class="slot-name">😠 진상 손님</span><span class="slot-status" style="font-size:11px">${sm ? `${CHARACTERS[sm].name} 자동 대응 중` : `방치 시 -${CUSTOMERS.nuisance.afk_penalty} (${fmtDur(state.nuisance.timerSec)})`}</span></div>`;
@@ -2750,7 +2875,7 @@ function updateCustomersLive() {
   const box = document.getElementById("ui-customers"); if (!box) return;
   const s = Math.round(state.satisfaction);
   const num = box.querySelector(".sat-num"); if (num) num.textContent = s;
-  const bar = box.querySelector(".sat-bar"); if (bar) { bar.style.width = s + "%"; bar.style.background = s >= 76 ? "#7fb069" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "#d96b6b"; }
+  const bar = box.querySelector(".sat-bar"); if (bar) { bar.style.width = s + "%"; bar.style.background = s >= 76 ? "var(--good)" : s >= 51 ? "#c9a86a" : s >= 21 ? "#b89a55" : "var(--bad)"; }
   const m = box.querySelector(".sat-mult"); if (m) m.textContent = satisfactionRepMult().toFixed(2);
 }
 function renderEvents() {
@@ -2759,9 +2884,9 @@ function renderEvents() {
   let html = `<div class="row" style="margin:0"><span class="label">${w.icon} ${ev.weather}</span><span class="value" style="font-size:12px;font-weight:normal">${w.desc} · 다음 ${fmtDur(ev.weatherTimerSec)}</span></div>`;
   const act = ["대목", "마왕의외상", "음유시인"].filter(k => specialActive(k));
   if (act.length) html += `<div class="gather-sub" style="color:#c9a86a;margin-top:5px">` + act.map(k => `✨ <b>${k}</b> (${ev.special[k].remainDays}일 남음)`).join(" · ") + `</div>`;
-  html += `<div class="gather-sub" style="margin-top:5px;color:#80766a">게임 ${ev.lastDailyDay}일차 · 다음 일일 이벤트 ${fmtDur(ev.dayTimerSec)}</div>`;
+  html += `<div class="gather-sub" style="margin-top:5px;color:var(--mute)">게임 ${ev.lastDailyDay}일차 · 다음 일일 이벤트 ${fmtDur(ev.dayTimerSec)}</div>`;
   // t31 야간 위상
-  html += `<div class="gather-sub" style="margin-top:5px">${ev.isNight ? "🌙 밤" : "☀️ 낮"} <span style="color:#80766a">· ${ev.isNight ? "밤" : "낮"} ${fmtDur(ev.nightTimerSec)} 남음 · 밤 ${ev.nightCount || 0}회</span></div>`;
+  html += `<div class="gather-sub" style="margin-top:5px">${ev.isNight ? "🌙 밤" : "☀️ 낮"} <span style="color:var(--mute)">· ${ev.isNight ? "밤" : "낮"} ${fmtDur(ev.nightTimerSec)} 남음 · 밤 ${ev.nightCount || 0}회</span></div>`;
   // t31 축제
   const F = EVENTS.festival, f = ev.festival;
   if (f.active) html += `<div class="gather-sub" style="color:#c97fb0;margin-top:4px">🎪 <b>축제 진행 중</b> — 접객 명성 ×${F.serve_rep_mult} · ${fmtDur(f.remainingSec)} 남음 (누적 ${f.count}회)</div>`;
@@ -2769,10 +2894,10 @@ function renderEvents() {
     const drinkTotal = Object.values(state.drinks).reduce((a, b) => a + b, 0);
     const can = state.reputation >= F.unlock_rep && state.funds >= F.cost.자금 && drinkTotal >= F.cost.drinks_any;
     const label = state.reputation < F.unlock_rep ? `🎪 축제 (명성 ${F.unlock_rep} 필요)` : `🎪 축제 개최 (자금 ${F.cost.자금}·술 ${F.cost.drinks_any}병)`;
-    html += `<div style="margin-top:4px"><button class="fest-hold"${can ? "" : " disabled"}>${label}</button> <span class="gather-sub" style="color:#80766a">누적 ${f.count}회</span></div>`;
+    html += `<div style="margin-top:4px"><button class="fest-hold"${can ? "" : " disabled"}>${label}</button> <span class="gather-sub" style="color:var(--mute)">누적 ${f.count}회</span></div>`;
   }
   const titles = Object.keys(ev.titles);
-  if (titles.length) html += `<div class="gather-sub" style="color:#7fb069;margin-top:3px">🏅 칭호: ${titles.join(", ")}</div>`;
+  if (titles.length) html += `<div class="gather-sub" style="color:var(--good);margin-top:3px">🏅 칭호: ${titles.join(", ")}</div>`;
   box.innerHTML = html;
   const fb = box.querySelector(".fest-hold"); if (fb) fb.onclick = holdFestival;
 }
@@ -2823,18 +2948,18 @@ function renderCardsPets() {
   const reachedPct = domeReached();   // 마일스톤 달성/다음은 영구 기준
   const nextMile = COMPLETION.milestones.find(s => reachedPct < s.p);
   const reachedMile = COMPLETION.milestones.filter(s => reachedPct >= s.p);
-  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📖 도감 완성도</span><span class="value">${pctTxt}% <span style="color:#80766a;font-weight:normal">(${domeOwnedCount()}/${COMPLETION.basis_total})</span></span></div>`;
+  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📖 도감 완성도</span><span class="value">${pctTxt}% <span style="color:var(--mute);font-weight:normal">(${domeOwnedCount()}/${COMPLETION.basis_total})</span></span></div>`;
   html += `<div class="bar-bg"><div class="bar-fill" style="width:${pctTxt}%;background:#c9a86a"></div></div>`;
-  html += `<div class="gather-sub" style="margin:4px 0 10px">${reachedMile.length ? `달성: ${reachedMile.map(s => s.label).join(" · ")}` : "마일스톤 미달성"}${nextMile ? ` <span style="color:#80766a">→ 다음 ${Math.round(nextMile.p * 100)}%: ${nextMile.label}</span>` : ""}</div>`;
+  html += `<div class="gather-sub" style="margin:4px 0 10px">${reachedMile.length ? `달성: ${reachedMile.map(s => s.label).join(" · ")}` : "마일스톤 미달성"}${nextMile ? ` <span style="color:var(--mute)">→ 다음 ${Math.round(nextMile.p * 100)}%: ${nextMile.label}</span>` : ""}</div>`;
   // ── 단골 카드
   const ownedCards = CARDS.list.filter(c => cardOwned(c.id)).length;
-  html += `<div class="gather-sub" style="margin-bottom:6px">🃏 단골 카드 ${ownedCards}/${CARDS.list.length}<span style="color:#80766a"> · 미구현 ${CARDS.deferred.length}</span></div>`;
+  html += `<div class="gather-sub" style="margin-bottom:6px">🃏 단골 카드 ${ownedCards}/${CARDS.list.length}<span style="color:var(--mute)"> · 미구현 ${CARDS.deferred.length}</span></div>`;
   html += `<div class="grid3">` + CARDS.list.map(c => {
     if (cardOwned(c.id)) { const n = state.cards[c.id], gr = cardGradeName(n);
-      return `<div class="cell"><span class="k">${c.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:#7fb069">${c.effect}${gr ? ` · ${gr}` : ""}${n > 1 ? ` ×${n}` : ""}</span></div>`; }
-    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">${cardUnlockHint(c)}</span></div>`;
+      return `<div class="cell"><span class="k">${c.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--good)">${c.effect}${gr ? ` · ${gr}` : ""}${n > 1 ? ` ×${n}` : ""}</span></div>`; }
+    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--mute)">${cardUnlockHint(c)}</span></div>`;
   }).join("") + `</div>`;
-  html += `<div class="grid3" style="margin-top:4px">` + CARDS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">미구현</span></div>`).join("") + `</div>`;
+  html += `<div class="grid3" style="margin-top:4px">` + CARDS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--mute)">미구현</span></div>`).join("") + `</div>`;
   // ── 세트 보너스
   html += `<div class="gather-sub" style="margin:10px 0 6px">🎴 세트 보너스</div>`;
   html += CARDS.sets.map(set => {
@@ -2845,17 +2970,17 @@ function renderCardsPets() {
   const cnt = petOwnedCount(), next = PETS.collection.find(m => cnt < m.n);
   const reached = PETS.collection.filter(m => cnt >= m.n && m.g).map(m => `${m.n}종 ${groupEffLabel(m.g, m.v)}`);
   html += `<div class="gather-sub" style="margin:10px 0 6px">🐾 펫 도감 ${cnt}/${PETS.list.length}${next ? ` · 다음 ${next.n}종 → ${groupEffLabel(next.g, next.v)}` : " · 전종 수집!"}</div>`;
-  if (reached.length) html += `<div class="gather-sub" style="color:#7fb069;margin-bottom:4px">도감 보너스: ${reached.join(", ")}</div>`;
+  if (reached.length) html += `<div class="gather-sub" style="color:var(--good);margin-bottom:4px">도감 보너스: ${reached.join(", ")}</div>`;
   html += `<div class="grid3">` + PETS.list.map(p => {
-    if (state.pets[p.id]) return `<div class="cell"><span class="k">${p.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:#7fb069">${p.effect}</span></div>`;
-    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">${petUnlockHint(p)}</span></div>`;
+    if (state.pets[p.id]) return `<div class="cell"><span class="k">${p.id}</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--good)">${p.effect}</span></div>`;
+    return `<div class="cell" style="opacity:.5"><span class="k">？？？</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--mute)">${petUnlockHint(p)}</span></div>`;
   }).join("") + `</div>`;
-  html += `<div class="grid3" style="margin-top:4px">` + PETS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:#80766a">미구현</span></div>`).join("") + `</div>`;
+  html += `<div class="grid3" style="margin-top:4px">` + PETS.deferred.map(n => `<div class="cell" style="opacity:.35"><span class="k">🔒 ${n}</span><span class="v" style="font-weight:normal;font-size:11px;color:var(--mute)">미구현</span></div>`).join("") + `</div>`;
   // ── 펫 장착 (용병 단위)
-  html += `<div class="gather-sub" style="margin:10px 0 6px">🎒 펫 장착 <span style="color:#80766a">(용병 단위 · 같은 펫은 영지 1마리)</span></div>`;
+  html += `<div class="gather-sub" style="margin:10px 0 6px">🎒 펫 장착 <span style="color:var(--mute)">(용병 단위 · 같은 펫은 영지 1마리)</span></div>`;
   html += Object.keys(CHARACTERS).filter(isRecruited).map(id => {
     const eq = state.petEquip[id] || [], max = petSlotMax(id);
-    const chips = eq.length ? eq.map(n => `<button class="pet-unequip" data-c="${id}" data-n="${n}" style="font-size:11px;padding:2px 6px">${n} ✕</button>`).join(" ") : `<span style="color:#80766a;font-size:11px">없음</span>`;
+    const chips = eq.length ? eq.map(n => `<button class="pet-unequip" data-c="${id}" data-n="${n}" style="font-size:11px;padding:2px 6px">${n} ✕</button>`).join(" ") : `<span style="color:var(--mute);font-size:11px">없음</span>`;
     const avail = Object.keys(state.pets).filter(n => state.pets[n] && !petEquippedMerc(n));
     const sel = (eq.length < max && avail.length) ? `<select class="pet-equip" data-c="${id}"><option value="">+ 장착</option>${avail.map(n => `<option value="${n}">${n}</option>`).join("")}</select>` : "";
     return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name}</span><span class="slot-status" style="font-size:11px">${eq.length}/${max}</span></div><div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${chips} ${sel}</div></div>`;
@@ -2880,7 +3005,7 @@ function renderEquipment() {
   const wq = EQUIP_CATALOG.filter(it => it.kind === "weapon" && equipOwned(it.id)).length;
   const aq = EQUIP_CATALOG.filter(it => it.kind === "armor" && equipOwned(it.id)).length;
   const sq = EQUIP_CATALOG.filter(it => it.kind === "set" && equipOwned(it.id)).length;
-  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📒 장비 도감</span><span class="value">${wq + aq + sq}/${EQUIP_CATALOG.length} <span style="color:#80766a;font-weight:normal">(무기 ${wq}/25·방어구 ${aq}/15·세트 ${sq}/28)</span></span></div>`;
+  let html = `<div class="row" style="margin:0 0 4px"><span class="label">📒 장비 도감</span><span class="value">${wq + aq + sq}/${EQUIP_CATALOG.length} <span style="color:var(--mute);font-weight:normal">(무기 ${wq}/25·방어구 ${aq}/15·세트 ${sq}/28)</span></span></div>`;
   html += `<div class="gather-sub" style="margin-bottom:6px">던전 보스 드롭으로 획득 · 장착=용병 단위(효과 그 용병만)</div>`;
   html += Object.keys(CHARACTERS).filter(isRecruited).map(id => {
     const wp = Math.round(mercWeaponPower(id)), sv = Math.round(mercSurvive(id) * 100);
@@ -2890,7 +3015,7 @@ function renderEquipment() {
     let sel = "";
     EQUIPMENT.slots.forEach(slot => sel += `<select class="eq-slot" data-m="${id}" data-slot="${slot}">${equipSlotOptions(id, slot)}</select> `);
     return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${CHARACTERS[id].name}</span>
-      <span class="slot-status" style="font-size:11px">무기 +${wp} · 피해감소 ${sv}%${setTags ? ` · <span style="color:#7fb069">${setTags}</span>` : ""}</span></div>
+      <span class="slot-status" style="font-size:11px">무기 +${wp} · 피해감소 ${sv}%${setTags ? ` · <span style="color:var(--good)">${setTags}</span>` : ""}</span></div>
       <div class="gather-sub" style="display:flex;gap:6px;flex-wrap:wrap">${sel}</div></div>`;
   }).join("");
   box.innerHTML = html;
@@ -2949,7 +3074,7 @@ function renderDungeon() {
     else if (ppow < d.rec_power) btn = `<button disabled>🔒 전투력 ${ppow}/${d.rec_power}</button>`;
     else if (dg.keys < cost) btn = `<button disabled>열쇠 ${dg.keys}/${cost}</button>`;
     else btn = `<button class="dg-enter" data-name="${d.name}">입장 (열쇠 ${cost})</button>`;
-    return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${d.name} <span style="color:#80766a;font-weight:normal;font-size:11px">${d.floors}층·${d.grade}·${d.boss}</span></span>
+    return `<div class="slot-row"><div class="slot-head"><span class="slot-name">${d.name} <span style="color:var(--mute);font-weight:normal;font-size:11px">${d.floors}층·${d.grade}·${d.boss}</span></span>
       <span class="slot-status" style="font-size:11px">추천 ${d.rec_power} · 클리어 ${clears}회${clears >= 10 ? " (+10%)" : ""}</span></div>${btn}</div>`;
   }).join("");
   if (dg.lastResult) html += `<div class="gather-sub" style="margin-top:6px">최근: ${dg.lastResult}</div>`;
@@ -2969,6 +3094,13 @@ function updateDungeonLive() {
   }
 }
 
+// 습격 예고 컷(아트 디렉션 §3-4). 실제 등장 티어는 확정습격(pendingBossTier) 아니면 습격 시점 무작위(pickTier) — 이 컷은 참고용 예상치.
+const MONSTER_ART = { 1: "art/monsters/thieves.png", 2: "art/monsters/bandits.png", 3: "art/monsters/monsters.png", 4: "art/monsters/thugs.png", 5: "art/lord.png", 6: "art/demon.png" };
+function nextRaidPreviewTier() {
+  if (state.combat.pendingBossTier) return state.combat.pendingBossTier;
+  const tiers = COMBAT.tier_by_stage[state.tavernStage] || [];
+  return tiers.length ? tiers[0] : 0;
+}
 function renderCombat() {
   const cb = state.combat;
   const ally = Math.round(allyPower());
@@ -2980,12 +3112,22 @@ function renderCombat() {
       ? `패배 유예 ${fmtDur(cb.cooldownSec)}`
       : `다음 습격까지 ${fmtDur(cb.raidTimerSec)}`;
   const repairCost = (COMBAT.wall_durability_max - cb.wall) * COMBAT.wall_repair_cost_per_point;
-  let html = `
-    <div class="row"><span class="label">방어 전력</span><span class="value">${ally} <span style="color:#80766a;font-weight:normal">(방어 ${defenderIds().length}명)</span></span></div>
+  let html = "";
+  const pvTier = nextRaidPreviewTier();
+  if (pvTier && state.tavernStage >= COMBAT.first_raid_min_stage) {
+    const et = COMBAT.enemy_tiers[pvTier - 1], isBoss = pvTier >= 5;
+    html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+      <img class="raid-cut${isBoss ? " boss" : ""}" src="${MONSTER_ART[pvTier]}" alt="${et.name}">
+      <div><div style="font-weight:800">${cb.pendingBossTier ? "👑 예정된 습격" : "예상 습격"} — [T${pvTier}] ${et.name}${et.role ? " " + et.role : ""}</div>
+      <div class="gather-sub">방어 전력 ${ally} 준비 중 · ${timerTxt}</div></div>
+    </div>`;
+  }
+  html += `
+    <div class="row"><span class="label">방어 전력</span><span class="value">${ally} <span style="color:var(--mute);font-weight:normal">(방어 ${defenderIds().length}명)</span></span></div>
     <div class="row"><span class="label">방벽 내구도</span><span class="value">${cb.wall} / ${COMBAT.wall_durability_max}</span></div>
-    <div class="bar-bg"><div class="bar-fill" style="width:${wallPct}%;background:#7fb069"></div></div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${wallPct}%;background:var(--good)"></div></div>
     <div class="row" style="margin-top:6px"><span class="label">대기</span><span class="value status${cb.cooldownSec > 0 ? " stop" : ""}">${timerTxt}</span></div>`;
-  if (injuredList.length) html += `<div class="gather-sub" style="color:#d96b6b">🤕 부상: ${injuredList.join(", ")} (회복 시 자동 복귀)</div>`;
+  if (injuredList.length) html += `<div class="gather-sub" style="color:var(--bad)">🤕 부상: ${injuredList.join(", ")} (회복 시 자동 복귀)</div>`;
   if (cb.lastResult) html += `<div class="gather-sub" style="margin-top:4px">최근: ${cb.lastResult}</div>`;
   html += `<div style="margin-top:8px"><button id="btn-repair"${repairCost > 0 ? "" : " disabled"}>방벽 수리 (자금 ${repairCost})</button></div>`;
   document.getElementById("ui-combat").innerHTML = html;
@@ -3070,6 +3212,25 @@ function obHighlight(targetId) {
 }
 /* ── UI 노출 페이싱 (SSOT ui_system_pacing) ─────────────────────────────────
    온보딩 중: 코어 11카드만. 완료 후: reveal_gate 충족 카드 점진 노출 + intro:true 1스텝 소개. */
+/* ── UI 개편: 5탭 골격 (아트 디렉션 스펙 §2) ──────────────────────────────
+   기존 카드 24개를 표시 컨테이너만 탭으로 재배치(게임 로직 무변경). data-tab은 HTML에 부여.
+   card-log(기록)는 탭 무관 상시 표시. */
+let activeTab = "주점";
+const TAB_LIST = ["주점", "생산", "용병", "전투", "도감"];
+function setTab(name) {
+  if (TAB_LIST.indexOf(name) < 0) return;
+  activeTab = name;
+  applyCardVisibility();
+}
+document.querySelectorAll("#ui-tabs .tab").forEach(el => el.onclick = () => setTab(el.dataset.tabbtn));
+// 온보딩 진행 중엔 현재 스텝의 target 카드가 속한 탭으로 자동 전환(하이라이트 대상이 가려지지 않도록)
+function onboardingForcedTab() {
+  if (!state.onboarding || state.onboarding.done) return null;
+  const def = OB_STEPS[state.onboarding.step];
+  if (!def || !def.target) return null;
+  const el = document.getElementById(def.target);
+  return el ? el.getAttribute("data-tab") : null;
+}
 const CORE_CARDS = ["card-progress", "card-roster", "card-materials", "card-gather", "card-brew", "card-drinkstock", "card-buff", "card-customers", "card-orders", "card-skills", "card-log"];
 function firstEquipmentOwned() { return Object.keys(state.equipment.owned).length > 0; }
 function firstCardOrPetOwned() { return Object.keys(state.cards).some(k => state.cards[k] >= 1) || Object.keys(state.pets).some(k => state.pets[k]); }
@@ -3102,7 +3263,14 @@ function cardVisible(id) {
   return g ? !!g.met(state) : true;                  // reveal_gate 충족 시 노출
 }
 function applyCardVisibility() {
-  document.querySelectorAll(".card[id]").forEach(el => { el.style.display = cardVisible(el.id) ? "" : "none"; });
+  const forced = onboardingForcedTab();
+  if (forced) activeTab = forced;
+  document.querySelectorAll("#ui-tabs .tab").forEach(el => el.classList.toggle("on", el.dataset.tabbtn === activeTab));
+  document.querySelectorAll(".card[id]").forEach(el => {
+    const tab = el.getAttribute("data-tab");            // data-tab 없는 카드(기록)는 탭 무관 상시 표시
+    const onTab = !tab || tab === activeTab;
+    el.style.display = (cardVisible(el.id) && onTab) ? "" : "none";
+  });
 }
 // 인트로: 신규 카드 첫 노출 시 1스텝 소개(intro:true, introSeen 1회)
 let introQueue = [], introActive = null, introRenderedKey = null;
@@ -3204,7 +3372,7 @@ function renderStory() {
         : `<div class="ob-line ob-narr">${txt}</div>`).join("");
   const comicHtml = b.kind === "comic" && b.comic ? `<img class="ob-comic" src="${b.comic}" alt="${b.title}">` : "";
   const endingHtml = b.kind === "ending"
-    ? `<div class="ob-line ob-narr">영지의 이름을 지어주세요:</div><input id="story-kingdom" type="text" maxlength="20" placeholder="예: 취권도 왕국" value="${state.kingdomName || ""}" style="width:100%;box-sizing:border-box;padding:8px;margin:2px 0 10px;border-radius:8px;border:1px solid #6b4a2e;background:#1c150f;color:#e8dcc8">` : "";
+    ? `<div class="ob-line ob-narr">영지의 이름을 지어주세요:</div><input id="story-kingdom" type="text" maxlength="20" placeholder="예: 취권도 왕국" value="${state.kingdomName || ""}" style="width:100%;box-sizing:border-box;padding:8px;margin:2px 0 10px;border-radius:8px;border:1px solid var(--line2);background:#1c150f;color:var(--ink)">` : "";
   host.innerHTML = `<div class="ob-modal-bg" style="z-index:1002"><div class="ob-modal">
     <div class="ob-step">${b.head || ("📖 " + b.title)}</div>${comicHtml}${linesHtml}${endingHtml}
     <button id="story-btn">${b.btn || (b.kind === "ending" ? "영주 계승" : "다음")}</button></div></div>`;
