@@ -1171,7 +1171,7 @@ function tickDungeonKeys(dtSec) {
 }
 // 원정 진행: run 타이머 소진 시 정산. 오프라인 큰 dt도 1회 정산 후 종료(파티 복귀).
 function tickDungeon(dtSec) {
-  tickDungeonKeys(dtSec);
+  if (!settling) tickDungeonKeys(dtSec);   // 온라인은 기존 그대로. 오프라인 정산(settling) 중엔 load()가 realSec 기준으로 별도 충전(SSOT keys.recharge.offline — 효율·24h/36h 생산캡과 분리된 실시간 에너지 모델)
   const run = state.dungeon.run;
   if (!run) return;
   run.remainingSec -= dtSec;
@@ -2320,6 +2320,7 @@ function load() {
   const realSec = (Date.now() - state.lastSaved) / 1000;
   if (realSec < 1) return;
   state.offlineTotalH = (state.offlineTotalH || 0) + realSec / 3600;   // 오프라인 누적(끈기 거북 임계 100h)
+  tickDungeonKeys(realSec);   // 던전 키=실시간 에너지 모델, 효율·24h/36h 생산캡과 분리(SSOT dungeon.keys.recharge.offline, QA 확정 2026-07-04)
   const cappedSec = Math.min(realSec, OFFLINE_HARDCAP_H * 3600);
   // 생산 정지점(BASE) = 24h + 오프라인 연장(영업 무용담·시간 거품, 분→시간), 36h 하드캡 클리핑.
   const baseH = Math.min(OFFLINE_HARDCAP_H, OFFLINE_BASE_H + offlineExtendHours());
