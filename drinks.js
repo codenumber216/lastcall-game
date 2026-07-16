@@ -41,5 +41,5 @@ const DRINKS = {
   "벚꽃주":     { name: "벚꽃주",     effect: "명성 획득 ×1.25",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
   "시원한라거": { name: "시원한 라거", effect: "자금 획득 ×1.2",               series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
   "수확와인":   { name: "수확 와인",   effect: "전 스킬 XP +30%",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
-  "따뜻한뱅쇼": { name: "따뜻한 뱅쇼", effect: "폭풍 무효(사냥·던전 차단 해제)", series: "시즌", mat: {}, brewSeconds: 4 * 3600, buff: { kind: "other" }, brewable: false }
+  "따뜻한뱅쇼": { name: "따뜻한 뱅쇼", effect: "폭풍 무효(사냥 정지·던전 차단 해제)", series: "시즌", mat: {}, brewSeconds: 4 * 3600, buff: { kind: "other" }, brewable: false }
 };
