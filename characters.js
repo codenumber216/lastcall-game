@@ -25,3 +25,21 @@ const CHARACTERS = {
   "셀라":     { name: "셀라",     race: "엘프",     class: "해결사",     brewLevel: 1,  gatherSkill: "원정", gatherLevel: 5, brewmaster: false, combatSkill: "궁술", combatLevel: 3 },
   "콩이":     { name: "콩이",     race: "햄스터",   class: "대마법사",   brewLevel: 1,  gatherSkill: "채집", gatherLevel: 6, brewmaster: false, combatSkill: "마법", combatLevel: 12 }
 };
+
+// 종족 패시브(mercenaries.race_passives, 미구현 12건 #4=A, 2026-07-16 수치 확정) — 그 용병 본인 단위(장착 펫과 동일 단위).
+// 키=merc(캐릭터 id, race 표시문자열 아님 — 플레이어 race="선택"이라 merc로 직결). 기존 가산 그룹 합류 → 전역 캡 자동.
+const RACE_PASSIVE = {
+  "플레이어": { group: "xp_all",      value: 0.03, label: "전 스킬 XP +3%" },
+  "셀라":     { group: "gather_rate", value: 0.05, label: "채집 효율 +5%" },
+  "콩이":     { group: "gather_rate", value: 0.05, label: "채집 효율 +5%" },
+  "보리":     { group: "brew_speed",  value: 0.05, label: "양조 속도 +5%" },   // 슬라임 폭발면역 0.3은 기구현 유지, 이건 추가분
+  "도리":     { group: "smith_speed", value: 0.05, label: "제작 시간 -5%" },
+  "진":       { group: "combat_atk",  value: 0.05, label: "전투력 +5%" },
+  "마라":     { group: "rep_gain",    value: 0.05, label: "명성 획득 +5%" }
+};
+// 그룹별 합산(영입된 용병만, isRecruited는 index.html) — relationshipBonus와 동일 패턴(계정 단위 무조건 합산, 참여 여부 무관)
+function racePassiveBonus(group) {
+  let s = 0;
+  for (const id in RACE_PASSIVE) { if (typeof isRecruited === "function" && isRecruited(id) && RACE_PASSIVE[id].group === group) s += RACE_PASSIVE[id].value; }
+  return s;
+}

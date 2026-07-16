@@ -195,6 +195,18 @@
   @keyframes stickerPop { from { transform: scale(.4) translateY(22px); opacity: 0; }
                           to { transform: none; opacity: 1; } }
   @keyframes stickerOut { to { opacity: 0; transform: translateY(12px) scale(.95); } }
+  /* 자투리 대사 토스트(t15, 좌하단 · 여러 개 스택) */
+  .dialogue-host { position: fixed; left: 18px; bottom: 18px; z-index: 1500;
+    display: flex; flex-direction: column-reverse; gap: 6px; max-width: 300px; pointer-events: none; }
+  .dialogue-toast { display: flex; gap: 8px; align-items: flex-start;
+    background: var(--panel, #2b2118); border: 1px solid var(--line, #4a3a28); border-radius: 10px;
+    padding: 8px 10px; box-shadow: 0 4px 14px #0008;
+    animation: dlgPop .3s cubic-bezier(.2,1.4,.4,1) both, dlgOut .4s ease forwards var(--hold, 3200ms); }
+  .dialogue-toast img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
+  .dialogue-toast .dlg-body { font-size: 12.5px; line-height: 1.4; color: var(--fg, #eee); }
+  .dialogue-toast .dlg-name { font-weight: 700; color: var(--amber, #d9a85c); margin-bottom: 1px; }
+  @keyframes dlgPop { from { transform: scale(.92) translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes dlgOut { to { opacity: 0; transform: translateY(6px); } }
 
   /* ── 반응형(§5) ── */
   @media (max-width:480px){
@@ -441,6 +453,8 @@
 <script src="distillery.js"></script>
 <script src="alchemy.js"></script>
 <script src="cloaks.js"></script>
+<script src="achievements.js"></script>
+<script src="dialogue.js"></script>
 <script src="alliances.js"></script>
 <script src="relationship.js"></script>
 
@@ -672,7 +686,7 @@ function cardPetAccountBonus(target) {
 function equippedPetBonus(charId, target) { let s = 0; (state.petEquip[charId] || []).forEach(n => { const p = PET_BY_ID[n]; if (p && p.g === target) s += p.v; }); return s; }
 function equippedPetBonusAll(target) { let s = 0; for (const id in CHARACTERS) s += equippedPetBonus(id, target); return s; }
 // XP 가속(카드·펫 도감 + 완성도 마일스톤): 스킬별 xp_조달/xp_전투 + 전역 xp_all
-function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp") + cauldronBonus("xp_all") + (drinkBuffOn("수련자의청주") ? 0.20 : 0) + statBonus("xp_all") + (drinkBuffOn("수확와인") ? 0.30 : 0); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t) + relationshipBonus(t); return s; }   // 지력(INT) 물약(t17 §5) + 시즌 수확와인(t11 §2)
+function xpBonus(skill) { let s = cardPetAccountBonus("xp_all") + milestoneXpAll() + snackBonus("xp") + cauldronBonus("xp_all") + (drinkBuffOn("수련자의청주") ? 0.20 : 0) + statBonus("xp_all") + (drinkBuffOn("수확와인") ? 0.30 : 0) + racePassiveBonus("xp_all"); const t = { 조달:"xp_조달", 전투:"xp_전투" }[skill]; if (t) s += cardPetAccountBonus(t) + relationshipBonus(t); return s; }   // 지력(INT) 물약(t17 §5) + 시즌 수확와인(t11 §2) + 종족패시브(인간, t22-B)
 
 // 도감 완성도(SSOT completion_log.completion_basis): 보유 종 수 ÷ 획득 가능 종 수(deferred 제외).
 function domeOwnedCount() { return CARDS.list.filter(c => cardOwned(c.id)).length + petOwnedCount(); }  // 카드 grade≥일반·펫 owned
@@ -695,6 +709,7 @@ function grantCard(name) {
     playSfx("sfx_collection_get");
     CARDS.sets.forEach(set => { if (set.cards.includes(name) && setComplete(set)) log(`🎴 세트 완성: ${set.name} (${set.label || groupEffLabel(set.g, set.v)})`); });
     updateDomeMax();
+    if (!settling && CARD_BY_ID[name].kind === "손님") fireDialogue("단골전환", SITUATION_LINES);   // 손님→단골 카드 전환(t15 §3)
   }
   return !had;
 }
@@ -794,7 +809,8 @@ function freshCombat() {
     maxTierCleared: 0,                 // 격퇴한 최고 적 티어(던전 마왕성 심층 해금 판정용)
     bossDone: { 5: false, 6: false },  // 보스 습격(자칭영주 tier5·마왕 tier6) 1회성 완료 플래그
     pendingBossTier: 0,                // 예약된 보스 습격 티어(다음 습격에서 강제 등장, 격퇴 시 소진)
-    lastResult: ""                     // 최근 전투 결과(표시용)
+    lastResult: "",                    // 최근 전투 결과(표시용)
+    traps: 0                           // 설치된 함정 수(t03·t06, #2)
   };
 }
 // 장비 초기 상태: owned{장비id:보유수}, equipped{용병id:{무기,갑옷,투구,장신구}}
@@ -812,7 +828,8 @@ function freshEvents() {
     isNight: false,                                                   // t31 야간 위상
     nightTimerSec: EVENTS.night.day_h * 3600 / TIME_SCALE,           // 현재 위상(낮) 남은 시간
     nightCount: 0,                                                    // 밤 진입 누적(야행 유령 게이트)
-    festival: { active: false, remainingSec: 0, count: 0 }           // t31 축제(개최 중·남은 시간·누적)
+    festival: { active: false, remainingSec: 0, count: 0 },          // t31 축제(개최 중·남은 시간·누적)
+    chatterTimerSec: CHATTER_INTERVAL_SEC                             // 다음 잡담까지(실시간, t15 §1)
   };
 }
 // 던전 원정 초기 상태
@@ -884,18 +901,32 @@ function masteryGroupBonus(group) {
 }
 function masteryXpBonus(track) { return masteryPct(track) >= 50 ? 0.12 : 0; }   // 50% 마일스톤(전 6트랙 공통 XP 훅)
 // XP 적립 + 레벨업(누적 XP가 충분하면 연속 레벨업). 활동 종료 시 호출.
+// 신병 부스트(t22-B, 미구현 12건 #8=A): 그 트랙 로스터 최고Lv 미만 용병만 배율. 본인이 최고면 1배.
+// 회상의 술(#9)이 활성 중이면 위에 곱(약한×3=+200%, 진한×6=+500%).
+function newbieXpMult(charId, track) {
+  let maxLv = 0;
+  for (const id in CHARACTERS) maxLv = Math.max(maxLv, skillLv(id, track));
+  if (skillLv(charId, track) >= maxLv) return 1;   // 신병 아님(본인이 최고)
+  let mult = 1 + maxLv / 20;
+  if (drinkBuffOn("약한회상주")) mult *= 3;
+  else if (drinkBuffOn("진한회상주")) mult *= 6;
+  return mult;
+}
 function addSkillXp(charId, skill, amount) {
   const node = state.skills && state.skills[charId] && state.skills[charId][skill];
   if (!node || amount <= 0) return;
   if (state.mastery && MASTERY_TRACKS.indexOf(skill) >= 0) state.mastery[skill] += amount;   // 계정 마스터리 풀 누적(base XP, getter 전) — t33
-  node.xp += amount * (1 + xpBonus(skill) + masteryXpBonus(skill)) * getterMult();   // XP 가속(xp_조달/전투/all+마스터리50%) × 90% 전 획득 x1.15(XP 획득)
+  node.xp += amount * (1 + xpBonus(skill) + masteryXpBonus(skill)) * getterMult() * newbieXpMult(charId, skill);   // XP 가속 × 신병부스트(t22-B)
+  let leveled = false;
   while (node.lv < SKILLS.level_max && node.xp >= SKILLS.xpToNext(node.lv)) {
     node.xp -= SKILLS.xpToNext(node.lv);
     node.lv++;
+    leveled = true;
     log(`📈 ${CHARACTERS[charId].name} ${skill} Lv.${node.lv} 달성!`);
     playSfx("sfx_levelup");
   }
   if (node.lv >= SKILLS.level_max) node.xp = 0;
+  if (leveled && !settling) fireDialogue("레벨업", SITUATION_LINES);
 }
 // 조달 스킬 레벨 보너스(가산): (조달Lv-1)×0.5%p, 캡 +120%
 function gatherSkillBonus(charId) {
@@ -906,7 +937,7 @@ function gatherSkillBonus(charId) {
     + mercSetBonus(charId, "gather_rate") + mercSetBonus(charId, "all_skill")   // 장비 세트(쥐꼬리 채집/사냥, 마왕성 전스킬)
     + cauldronBonus("gather_rate") + allianceBonus("gather_rate") + nightProductionBonus()   // 가마솥 + 동맹 + 야간(야행 유령)
     + masteryGroupBonus("gather_rate") + cloakOmniBonus("all_skill")   // 마스터리 25%(t33) + 만능 망토
-    + statBonus("gather_rate");   // 재간(DEX) 물약(t17 §5)
+    + statBonus("gather_rate") + racePassiveBonus("gather_rate");   // 재간(DEX) 물약(t17 §5) + 종족패시브(엘프·햄스터, t22-B)
   return Math.min(SKILLS.rate_cap, b);   // 생산 +120% 캡
 }
 
@@ -921,7 +952,8 @@ function brewSpeedBonus(charId) {
     + equippedPetBonus(charId, "brew_speed") + equippedPetBonus(charId, "all_skill")  // 양조 두꺼비 등
     + mercSetBonus(charId, "all_skill")   // 장비 세트(마왕성 전 스킬)
     + cauldronBonus("brew_speed") + relationshipBonus("brew_speed") + nightProductionBonus()   // 가마솥(발효) + 관계(보리) + 야간(야행 유령)
-    + masteryGroupBonus("brew_speed") + cloakOmniBonus("all_skill");   // 마스터리 25%(t33) + 만능 망토
+    + masteryGroupBonus("brew_speed") + cloakOmniBonus("all_skill")   // 마스터리 25%(t33) + 만능 망토
+    + racePassiveBonus("brew_speed");   // 종족패시브(슬라임, t22-B)
   return Math.min(FERMENTATION.speed_additive_cap, b);           // 생산 +120% 캡
 }
 // 보너스 적용된 1병 발효시간(초): 빠를수록 시간이 짧아진다
@@ -1010,7 +1042,7 @@ function combatAtkMult(ids) {
     + cardPetAccountBonus("combat_atk") + cardPetAccountBonus("all_skill")
     + equippedPetBonusAll("combat_atk") + equippedPetBonusAll("all_skill") + eq + snackBonus("atk") + cauldronBonus("combat_atk") + cloakBonus("combat_atk") + allianceBonus("combat_atk") + relationshipBonus("combat_atk")
     + masteryGroupBonus("combat_atk") + cloakOmniBonus("all_skill")   // 마스터리 25%+100%(t33) + 만능 망토
-    + statBonus("combat_atk"));   // 완력(STR) 물약(t17 §5)
+    + statBonus("combat_atk") + racePassiveBonus("combat_atk"));   // 완력(STR) 물약(t17 §5) + 종족패시브(동양검객, t22-B)
 }
 function combatSurviveMult(ids) {
   ids = ids || [];
@@ -1027,6 +1059,7 @@ function allyPower() {
   const ids = defenderIds();
   let pBase = 0;
   ids.forEach(id => pBase += combatContribution(CHARACTERS[id].combatSkill, skillLv(id, "전투")) + mercWeaponPower(id));
+  pBase += state.combat.traps * COMBAT.trap.power_per * (drinkBuffOn("함정꾼의독주") ? 1.3 : 1);   // 함정 기여(t03·t06, #2)
   const mAudience = 1 + COMBAT.audience["낮음"];                // 관중 시스템 없음 → 낮음(0)
   return pBase * combatAtkMult(ids) * combatSurviveMult(ids) * mAudience * combatAccountMult();
 }
@@ -1066,6 +1099,7 @@ function applyDefeat(severe, ally, enemy, ratio, tag) {
     if (pool.length) { const v = pool[Math.floor(Math.random() * pool.length)]; injureMerc(v); inj = `·${CHARACTERS[v].name} 부상(2h)`; }
   }
   state.combat.consecutiveClears = 0;
+  state.combat.traps = Math.floor(state.combat.traps / 2);   // 패배 시 설치 함정 절반 파괴(내림, t03·t06 #2)
   state.satisfaction = clampSat(state.satisfaction - SAT.dec.습격패배);   // 습격 패배 만족도 -5
   state.combat.lastResult = `${tag} ${severe ? "완패" : "패배"} (${Math.round(ally)} vs ${Math.round(enemy)}, ratio ${ratio.toFixed(2)}) — 술 -${Math.round(drinkLoss * 100)}%·자금 -${Math.round(fundsLoss * 100)}%·방벽 -${d.wall}${inj}`;
   log(`🛡️ ${state.combat.lastResult}`);
@@ -1075,6 +1109,7 @@ function resolveRaid() {
   const tier = bossTier || pickTier();
   if (!tier) return;                          // 면제 단계(1단계 등)는 습격 없음
   playSfx("sfx_raid_start"); playRaidStinger();   // 습격 판정 시작(t34 §1-1a, §3-3)
+  if (!settling) fireDialogue("습격경보", SITUATION_LINES);
   const et = COMBAT.enemy_tiers[tier - 1], tag = `${bossTier ? "👑" : ""}[T${tier} ${et.name}${et.role ? " " + et.role : ""}]`;
   const ally = allyPower();
   const enemy = (et.power.min + Math.random() * (et.power.max - et.power.min)) * enemyPowerMult();
@@ -1094,11 +1129,13 @@ function resolveRaid() {
     playSfx("sfx_raid_win");
     addSeasonToken(SEASON_TOKEN_EARN.raidWin);   // 시즌 토큰(t11 §2, 습격 격퇴 +5)
     showSticker("jin");                                                      // 격퇴 — 진
+    if (!settling) fireDialogue("습격격퇴성공", SITUATION_LINES);
   } else {                                                                   // 패배/완패
     applyDefeat(ratio < COMBAT.defeat.패배.min, ally, enemy, ratio, tag);
     distributeCombatXp(tier, true);
     playSfx("sfx_raid_lose");
     showSticker("player");                                                   // 패배 — 용병 "힐, 잠깐만요!!?"
+    if (!settling) fireDialogue("습격패배", SITUATION_LINES);
   }
 }
 // 습격 타이머·부상 회복·패배 유예를 dtSec만큼 진행 (오프라인 큰 dt면 여러 습격 정산)
@@ -1129,6 +1166,17 @@ function repairWall() {
   if (state.funds < cost) { log(`방벽 수리에 자금 ${cost} 필요 (보유 ${Math.floor(state.funds)}).`); render(); return; }
   state.funds -= cost; state.combat.wall = COMBAT.wall_durability_max;
   log(`🧱 방벽 수리 완료 (자금 -${cost}).`); render();
+}
+// 함정 설치(t03·t06, 미구현 12건 #2=A) — 상한 floor(로스터 최고 전투Lv/10) 최대9, 1개당 광석3+목재3
+function trapMax() { return Math.min(COMBAT.trap.install_max_cap, Math.floor(maxSkillLv("전투") / COMBAT.trap.install_max_divisor)); }
+function installTrap() {
+  const max = trapMax();
+  if (state.combat.traps >= max) { log(`함정 설치 상한(${max}개)에 도달했습니다.`); render(); return; }
+  const cost = COMBAT.trap.cost;
+  for (const m in cost) if ((state.materials[m] || 0) < cost[m]) { log("함정 설치 재료가 부족합니다 (광석·목재 각 3 필요)."); render(); return; }
+  for (const m in cost) state.materials[m] -= cost[m];
+  state.combat.traps++;
+  log(`🪤 함정 설치 (${state.combat.traps}/${max}).`); render();
 }
 
 
@@ -1354,7 +1402,7 @@ function checkSeason() {
     } else if (!settling) log(`${prev.icon} ${prev.name} 종료.`);
   }
   state.season.active = cur;
-  if (cur) { const s = SEASON_BY_ID[cur]; if (!settling) log(`${s.icon} ${s.name} 시작! ${s.tokenLabel} 획득 시작(접객·습격·의뢰·던전보스·축제완료).`); needsFullRender = true; }
+  if (cur) { const s = SEASON_BY_ID[cur]; if (!settling) { log(`${s.icon} ${s.name} 시작! ${s.tokenLabel} 획득 시작(접객·습격·의뢰·던전보스·축제완료).`); fireDialogue(cur, SEASON_LINES); } needsFullRender = true; }
 }
 // 시즌 토큰 적립(시즌 중에만) + lifetime 누적 + 100 도달 시 칭호 자동 부여. settling 중엔 적립만(로그 억제).
 function addSeasonToken(n) {
@@ -1407,7 +1455,7 @@ function rollDailyEvents() {
     state.funds -= L["떠돌이상인"].cost_funds;
     const p = L["떠돌이상인"].pool, mat = p[Math.floor(Math.random() * p.length)];
     state.materials[mat] = Math.min(MAT_CAP, (state.materials[mat] || 0) + L["떠돌이상인"].amount);
-    if (!settling) log(`🧳 떠돌이 상인 — 자금 -${L["떠돌이상인"].cost_funds}, ${mat} +${L["떠돌이상인"].amount}`);
+    if (!settling) { log(`🧳 떠돌이 상인 — 자금 -${L["떠돌이상인"].cost_funds}, ${mat} +${L["떠돌이상인"].amount}`); fireDialogue("떠돌이상인", EVENT_LINES); }
   }
   if (Math.random() < L["술배달의뢰"].prob) {
     let need = L["술배달의뢰"].any_drink, total = Object.values(state.drinks).reduce((a, b) => a + b, 0);
@@ -1415,7 +1463,7 @@ function rollDailyEvents() {
   }
   if (!settling) log(`🎁 단골 방문 — 자금 +${L["단골방문"].funds}`);
 }
-function startSpecial(k) { state.events.special[k].remainDays = EVENTS.special[k].duration_days; needsFullRender = true; if (!settling) log(`✨ 특별 이벤트: ${k} 시작 (${EVENTS.special[k].duration_days}일간)`); }
+function startSpecial(k) { state.events.special[k].remainDays = EVENTS.special[k].duration_days; needsFullRender = true; if (!settling) { log(`✨ 특별 이벤트: ${k} 시작 (${EVENTS.special[k].duration_days}일간)`); if (k === "마왕의외상") fireDialogue("마왕의외상", SEASON_LINES); } }
 function endSpecial(k) {
   needsFullRender = true;
   if (k === "마왕의외상") { const e = EVENTS.special["마왕의외상"]; state.funds += e.reward_funds; state.events.titles[e.title] = true; if (!settling) log(`🏆 마왕의 외상 완료 — 자금 +${e.reward_funds}, 칭호 '${e.title}' 획득`); }
@@ -1429,7 +1477,7 @@ function onDayBoundary() {
   if (Math.random() < EVENTS.special["음유시인"].daily_prob) { startSpecial("음유시인"); if (Math.random() < EVENTS.special["음유시인"].card_rate) grantCard(EVENTS.special["음유시인"].card); state.materials["악사의악보"] = (state.materials["악사의악보"] || 0) + 1; }   // 물약 재료(t17 §5-3)
   // 진상 손님 발생(일확률 0.5, 대목 중 ×2)
   const np = CUSTOMERS.nuisance.daily_prob * (specialActive("대목") ? CUSTOMERS.nuisance.mult_during_대목 : 1);
-  if (!state.nuisance.active && Math.random() < np) { state.nuisance.active = true; state.nuisance.timerSec = CUSTOMERS.nuisance.neglect_grace_h * 3600 / TIME_SCALE; needsFullRender = true; if (!settling) log("😠 진상 손님이 나타났습니다! (접객 용병 배치 시 자동 대응)"); }
+  if (!state.nuisance.active && Math.random() < np) { state.nuisance.active = true; state.nuisance.timerSec = CUSTOMERS.nuisance.neglect_grace_h * 3600 / TIME_SCALE; needsFullRender = true; if (!settling) { log("😠 진상 손님이 나타났습니다! (접객 용병 배치 시 자동 대응)"); fireDialogue(["진상A", "진상B", "진상C"][Math.floor(Math.random() * 3)], EVENT_LINES); } }
   rollDailyEvents();
 }
 function tickEvents(dtSec) {
@@ -1687,7 +1735,7 @@ function setCookSnack(snackId) { if (SNACK_BY_ID[snackId]) { state.cookSlot.snac
 
 /* ── 대장일(제작) 엔진 (t29) ──────────────────────────────────────────────── */
 function smithGradeUnlocked(grade) { return skillLv(state.smithing.charId, "대장일") >= SMITHING.grade_unlock_by_level[grade]; }
-function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level + (masteryPct("대장일") >= 25 ? 0.08 : 0)); }   // 마스터리 대장일 25%(t33)
+function smithSpeedBonus(charId) { return Math.min(SMITHING.speed_cap, (skillLv(charId, "대장일") - 1) * SMITHING.speed_per_level + (masteryPct("대장일") >= 25 ? 0.08 : 0) + racePassiveBonus("smith_speed")); }   // 마스터리 대장일 25%(t33) + 종족패시브(드워프, t22-B)
 function craftMatMult() { return 1 - Math.min(0.95, kingdomBonus("craft_mat") + relationshipBonus("craft_mat") + masteryGroupBonus("craft_mat")); }   // 제작 무용담 + 관계(도리) + 마스터리 대장일 100%(t33) 재료 -%
 // 레시피: 부위 기본재료 × 등급배수 × 제작무용담. 전설은 전설재료 추가.
 function smithRecipe(part, grade) {
@@ -1763,6 +1811,7 @@ function startExpedition() {
   if (state.serveAssign === e.charId) state.serveAssign = null;
   e.totalSec = expDuration(d); e.remainingSec = e.totalSec; e.active = true;
   log(`🧭 ${CHARACTERS[e.charId].name} → '${d.name}' 원정 출발 (${fmtDur(e.remainingSec)}).`);
+  if (e.charId === "콩이") fireDialogue("콩이원정_출발", EVENT_LINES);   // 길 잃은 원정(t15 §2, 코믹)
   needsFullRender = true; render();
 }
 function resolveExpedition() {
@@ -1780,6 +1829,7 @@ function resolveExpedition() {
   e.completedCount = (e.completedCount || 0) + 1;
   e.active = false; e.remainingSec = 0;
   log(`🧭 원정 '${d.name}' 복귀 (${e.completedCount}회) — ${txt}.`);
+  if (e.charId === "콩이" && !settling) fireDialogue("콩이원정_복귀", EVENT_LINES);   // 길 잃은 원정(t15 §2, 코믹)
   // B3 마왕성 정찰 복선(로그 토스트, 1회) — t32 §2 B3
   if (d.reward.story && !state.story.seen["B3"]) { state.story.seen["B3"] = true; log("🗣️ 정찰 보고 — 마왕성까지 우리 술 소문이 났답니다. …마왕이 곧 마시러 온다는 흉흉한 얘기."); }
   needsFullRender = true;
@@ -1821,6 +1871,8 @@ function tick(dtSec) {
   checkCardPetUnlocks();   // 조건형 단골 카드·펫 자동 획득(폴링)
   checkCloakUnlocks();     // 트랙 Lv.99 → 명예의 망토 자동 획득(폴링)
   checkSeason();           // 실제 달력 기준 시즌 전환 감지(t11 §2)
+  checkAchievements();     // 업적 6종 → 칭호 자동 부여(폴링, 미구현 12건 #7=A)
+  tickChatter(dtSec);      // 일일 잡담 5분마다(t15 §1, 미구현 12건 #11=A)
 }
 
 /* ── 의뢰 게시판 엔진 ──────────────────────────────────────────────────────── */
@@ -1920,6 +1972,7 @@ function completeOrder(i) {
   o.done = true;
   log(`📜 의뢰 완료 [${o.tier}] ${orderText(o)} — 자금 +${gf}·명성 +${gr}${matTxt}${mult > 1 ? ` (반복 x${mult})` : ""}`);
   addSeasonToken(SEASON_TOKEN_EARN.order);   // 시즌 토큰(t11 §2, 의뢰 완료 +5)
+  fireDialogue("의뢰완료", SITUATION_LINES);
   render();
 }
 
@@ -1979,7 +2032,7 @@ function tickBrewSlots(dtSec) {
     }
     const char = CHARACTERS[slot.charId];
     const drink = DRINKS[slot.drinkId];
-    if (!char || !drink || drink.brewable === false) continue;   // 시즌 술 등 양조 불가 술이 슬롯에 남아 있어도 방어(t11 §2)
+    if (!char || !drink || drink.brewable === false || (drink.stageMin && state.tavernStage < drink.stageMin)) continue;   // 시즌 술 등 양조 불가·단계 미달 술 방어(t11 §2, t22-B)
     if (skillLv(slot.charId, "양조") < (drink.brewReqLv || 1)) continue;  // 양조 레벨 부족 → 양조 대기
     const oneBottleSec = effBrewSeconds(drink, slot.charId) / TIME_SCALE;
 
@@ -1993,12 +2046,14 @@ function tickBrewSlots(dtSec) {
         // 💥 폭발: 수율 0, 진행도 리셋, 슬롯 5분(게임시간) 정리
         log(`💥 ${char.name}의 ${drink.name} 양조가 폭발! 재료가 날아갔어요(스탯 페널티 없음).`);
         playSfx("sfx_brew_explosion");
+        if (!settling) fireDialogue("술통폭발", EVENT_LINES);
         slot.progressSec = 0;
         slot.cooldownSec = (FERMENTATION.explosion.cleanup_min * 60) / TIME_SCALE;
         break;
       }
       if ((state.drinks[id] || 0) < BUFF.consume) needsFullRender = true;   // 버프 소비 경계(재고 0→유) 통과 → 버프 셀렉트 옵션 재구성 필요(QA 버그: 온보딩4단계)
       state.drinks[id] = (state.drinks[id] || 0) + 1;
+      if (id === "보리의정수") state.story.flags.brewedElixir = true;   // 업적 '전설의 주조사'(누적 제조, 재고 소비와 무관하게 영구 유지)
       playSfx("sfx_brew_done");
       // 망토(술도사 앞치마, 전설승급 시 강화) + 마스터리 75%(+15%p): 확률로 +1병(창고 여유분 한정)
       const doubleChance = cloakBrewDoubleChance() + (masteryPct("양조") >= 75 ? 0.15 : 0);
@@ -2118,6 +2173,7 @@ function load() {
     if (sc.bossDone && typeof sc.bossDone === "object") { state.combat.bossDone[5] = !!sc.bossDone[5]; state.combat.bossDone[6] = !!sc.bossDone[6]; }
     if (sc.pendingBossTier === 5 || sc.pendingBossTier === 6) state.combat.pendingBossTier = sc.pendingBossTier;
     if (typeof sc.lastResult === "string") state.combat.lastResult = sc.lastResult;
+    if (typeof sc.traps === "number") state.combat.traps = Math.min(COMBAT.trap.install_max_cap, Math.max(0, Math.floor(sc.traps)));
     if (sc.injured && typeof sc.injured === "object") {
       for (const id in sc.injured) if (CHARACTERS[id] && typeof sc.injured[id] === "number") state.combat.injured[id] = sc.injured[id];
     }
@@ -2192,6 +2248,7 @@ function load() {
     if (typeof sv.lastDailyDay === "number") state.events.lastDailyDay = Math.max(0, Math.floor(sv.lastDailyDay));
     if (sv.special && typeof sv.special === "object") for (const k in state.events.special) { const r = sv.special[k] && sv.special[k].remainDays; if (typeof r === "number") state.events.special[k].remainDays = Math.max(0, Math.floor(r)); }
     if (sv.titles && typeof sv.titles === "object") for (const t in sv.titles) if (sv.titles[t]) state.events.titles[t] = true;
+    if (typeof sv.chatterTimerSec === "number") state.events.chatterTimerSec = Math.max(0, sv.chatterTimerSec);   // t15 §1 잡담 타이머
     // t31 야간·축제 복원
     state.events.isNight = !!sv.isNight;
     if (typeof sv.nightTimerSec === "number") state.events.nightTimerSec = Math.max(0, sv.nightTimerSec);
@@ -2454,7 +2511,7 @@ function renderBrewSlots() {
   const box = document.getElementById("ui-brew-slots");
   box.innerHTML = state.brewSlots.map((slot, i) => {
     const v = brewSlotView(i);
-    const drinkOpts = Object.keys(DRINKS).filter(id => DRINKS[id].brewable !== false).map(id => `<option value="${id}"${id === slot.drinkId ? " selected" : ""}>${DRINKS[id].name}</option>`).join("");
+    const drinkOpts = Object.keys(DRINKS).filter(id => DRINKS[id].brewable !== false && (!DRINKS[id].stageMin || state.tavernStage >= DRINKS[id].stageMin)).map(id => `<option value="${id}"${id === slot.drinkId ? " selected" : ""}>${DRINKS[id].name}</option>`).join("");
     return `<div class="slot-row${v.active ? " active" : ""}">
       <div class="slot-head"><span class="slot-name">발효 슬롯 ${i + 1}</span><span class="slot-status">${v.status}</span></div>
       <div class="slot-controls">
@@ -2610,7 +2667,7 @@ function renderMasteryBars() {
 
 // 행동: 명성/자금 획득 (reputation.gain_actions)
 // 명성/자금 획득 배수(무용담·술통). 접객은 만족도 보너스도 추가 적용.
-function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain") + cauldronBonus("rep_gain") + relationshipBonus("rep_gain") + equippedPetBonusAll("rep_gain") + statBonus("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult() * (drinkBuffOn("왕국의축배") ? 2 : 1) * (drinkBuffOn("벚꽃주") ? 1.25 : 1); }   // + 가마솥(입소문) + 관계(마라) + 소문 참새(장착) + 넉살(CHA) 물약(t17 §5) + 시즌 벚꽃주(t11 §2)
+function repGainMult() { return (1 + kingdomBonus("rep_gain") + cardPetAccountBonus("rep_gain") + cauldronBonus("rep_gain") + relationshipBonus("rep_gain") + equippedPetBonusAll("rep_gain") + statBonus("rep_gain") + racePassiveBonus("rep_gain")) * milestoneRepMult() * getterMult() * weatherRepMult() * musicRepMult() * (drinkBuffOn("왕국의축배") ? 2 : 1) * (drinkBuffOn("벚꽃주") ? 1.25 : 1); }   // + 가마솥(입소문) + 관계(마라) + 소문 참새(장착) + 넉살(CHA) 물약(t17 §5) + 시즌 벚꽃주(t11 §2) + 종족패시브(이세계인, t22-B)
 function fundsGainMult() { return (1 + kingdomBonus("funds_gain") + cardPetAccountBonus("funds_gain") + cauldronBonus("funds_gain") + allianceBonus("funds_gain")) * getterMult() * (drinkBuffOn("시원한라거") ? 1.2 : 1); }   // + 가마솥(황금) + 동맹(상인 연합) + 시즌 시원한라거(t11 §2)
 function doServe() {
   const a = REP_ACTIONS.serve; let rep = 0, funds = 0;
@@ -2624,6 +2681,7 @@ function doServe() {
 function promote() {
   if (!canPromote()) { log("승급 조건이 부족합니다."); render(); return; }
   const next = STAGES[state.tavernStage];
+  const prevSlots = stageMercSlots(state.tavernStage);   // 신규 용병 합류 판정(t15 §3)
   for (const [k, v] of Object.entries(next.build_cost)) {
     if (k === "명성") continue;                            // 게이트(비소비)
     if (k === "자금") state.funds -= buildCostAmount(k, v);   // 확장 무용담 절감 반영
@@ -2633,6 +2691,10 @@ function promote() {
   syncBrewSlots(); reconcileAssignments();
   log(`🏰 ${next.stage}단계 '${next.name}' 승급! 발효·채집 ${slotCount()}칸 · 용병 ${stageMercSlots(next.stage)}명 · World ${next.world} 해금.`);
   playSfx("sfx_promotion");
+  if (!settling) {
+    fireDialogue("주점확장", SITUATION_LINES);
+    if (stageMercSlots(next.stage) > prevSlots) fireDialogue("신규용병합류", SITUATION_LINES);
+  }
   // 보스 습격 예약: 4단계 → 자칭영주(tier5), 6단계 → 마왕(tier6) 각 1회성
   if (state.tavernStage === 4 && !state.combat.bossDone[5]) { state.combat.pendingBossTier = 5; log("⚠️ '자칭 영주'가 이 주점을 노린다는 소문… 곧 습격이 있을 것이다."); }
   if (state.tavernStage === 6 && !state.combat.bossDone[6]) { state.combat.pendingBossTier = 6; log("👑 마왕이 직접 온다! 최종 결전이 임박했다."); }
@@ -3080,6 +3142,12 @@ function renderEvents() {
   }
   const titles = Object.keys(ev.titles);
   if (titles.length) html += `<div class="gather-sub" style="color:var(--good);margin-top:3px">🏅 칭호: ${titles.join(", ")}</div>`;
+  // 업적 6종(t10, #7) — 달성 여부 표시
+  html += `<div class="gather-sub" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"><b>🏆 업적</b></div>`;
+  html += ACHIEVEMENTS.map(a => {
+    const done = !!ev.titles[a.title];
+    return `<div class="gather-sub" style="color:${done ? "var(--good)" : "var(--mute)"}">${done ? "✅" : "⬜"} ${a.title} — ${a.desc}</div>`;
+  }).join("");
   // 시즌 이벤트(t11 §2) — 시즌 중에만 상점 노출
   const seasonId = state.season.active;
   if (seasonId) {
@@ -3331,8 +3399,12 @@ function renderCombat() {
   if (injuredList.length) html += `<div class="gather-sub" style="color:var(--bad)">🤕 부상: ${injuredList.join(", ")} (회복 시 자동 복귀)</div>`;
   if (cb.lastResult) html += `<div class="gather-sub" style="margin-top:4px">최근: ${cb.lastResult}</div>`;
   html += `<div style="margin-top:8px"><button id="btn-repair"${repairCost > 0 ? "" : " disabled"}>방벽 수리 (자금 ${repairCost})</button></div>`;
+  const tMax = trapMax();
+  html += `<div class="row" style="margin-top:8px"><span class="label">🪤 함정</span><span class="value">${cb.traps} / ${tMax}${drinkBuffOn("함정꾼의독주") ? " (독주 ×1.3)" : ""}</span></div>
+    <div><button id="btn-trap"${(tMax > 0 && cb.traps < tMax) ? "" : " disabled"}>함정 설치 (광석3·목재3)</button></div>`;
   document.getElementById("ui-combat").innerHTML = html;
   const br = document.getElementById("btn-repair"); if (br) br.onclick = repairWall;
+  const bt = document.getElementById("btn-trap"); if (bt) bt.onclick = installTrap;
 }
 
 /* ── 온보딩(첫 진입 튜토리얼) — 오버레이 계층 (게임 로직 비침범) ─────────────
@@ -3407,6 +3479,52 @@ function showSticker(key, hold = 2400) {
   el.innerHTML = `<img src="art/stickers/${key}.png" alt="">`;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), hold + 700);
+}
+
+/* ── 자투리 대사 풀 엔진(t15, 미구현 12건 #11=A) — 대사 원문은 dialogue.js(t15 그대로), 여기는 배선/표시만.
+   가드: 온보딩 중 억제(t24) + 미해금 용병 화자 대사 금지 + 잡담 최근5 반복 방지. ────────────────────── */
+function dialogueHost() {
+  let el = document.getElementById("dialogue-host");
+  if (!el) { el = document.createElement("div"); el.id = "dialogue-host"; el.className = "dialogue-host"; document.body.appendChild(el); }
+  return el;
+}
+function dialogueSpeakerOk(who) { return !CHARACTERS[who] || isRecruited(who); }   // 로스터 캐릭터만 영입 가드, 그 외(손님·상인 등)는 항상 허용
+function showDialogue(who, text, hold = 3200) {
+  if (state.onboarding && !state.onboarding.done) return;   // t24 가드: 온보딩 중 억제
+  if (!dialogueSpeakerOk(who)) return;                       // 미해금 용병 대사 금지
+  const host = dialogueHost();
+  const el = document.createElement("div");
+  el.className = "dialogue-toast";
+  el.style.setProperty("--hold", hold + "ms");
+  el.innerHTML = `${OB_PORTRAIT[who] ? `<img src="${OB_PORTRAIT[who]}" alt="">` : ""}<div class="dlg-body">${who ? `<div class="dlg-name">${who}</div>` : ""}${text}</div>`;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), hold + 700);
+}
+// [화자,대사] 시퀀스를 stepMs 간격으로 순차 출력(§2~§5 공용). 화자 미해금 줄은 그 줄만 자동 스킵.
+function fireDialogue(key, table, stepMs = 1900) {
+  if (state.onboarding && !state.onboarding.done) return;
+  const seq = table && table[key]; if (!seq) return;
+  seq.forEach((pair, i) => setTimeout(() => showDialogue(pair[0], pair[1]), i * stepMs));
+}
+// §1 일일 잡담 — 영입된 캐릭터(+격퇴 후 마왕) 중 랜덤 1인의 랜덤 1줄. 최근5 반복 방지.
+let _chatterRecent = [];
+function fireChatter() {
+  if (state.onboarding && !state.onboarding.done) return;
+  const speakers = Object.keys(CHATTER_POOL).filter(w => w === "마왕" ? cardOwned("마왕 단골") : isRecruited(w));
+  if (!speakers.length) return;
+  const who = speakers[Math.floor(Math.random() * speakers.length)];
+  const pool = CHATTER_POOL[who];
+  const fresh = pool.filter(t => !_chatterRecent.includes(t));
+  const text = (fresh.length ? fresh : pool)[Math.floor(Math.random() * (fresh.length ? fresh.length : pool.length))];
+  _chatterRecent.push(text); if (_chatterRecent.length > 5) _chatterRecent.shift();
+  showDialogue(who, text);
+}
+function tickChatter(dtSec) {
+  state.events.chatterTimerSec -= dtSec;
+  if (state.events.chatterTimerSec <= 0) {
+    state.events.chatterTimerSec = CHATTER_INTERVAL_SEC;
+    if (!settling) fireChatter();
+  }
 }
 function obHighlight(targetId) {
   document.querySelectorAll(".ob-highlight").forEach(e => e.classList.remove("ob-highlight"));
@@ -3557,7 +3675,7 @@ const STORY_BEATS = [
       ["할머니", "이 정도면… 내 가게보다 낫네."],
       ["", "칭호 '주점의 친구들' 획득"]
     ],
-    onFire: () => { state.events.titles["주점의 친구들"] = true; } }
+    onFire: () => { state.events.titles["주점의 친구들"] = true; fireDialogue("컴플리트", ENDGAME_LINES); } }
 ];
 let storyActive = null, storyRenderedKey = null;
 function renderStory() {
@@ -4010,6 +4128,7 @@ load();
 if (!state.orders.active.length) state.orders.active = generateOrders();   // 새 게임(세이브 없음) 시 첫 의뢰 생성
 applyAudioUI();   // 저장된 볼륨/음소거 상태를 컨트롤 UI에 반영(재생은 첫 입력 후, t34 §3-4)
 render();
+if (state.onboarding.done) fireChatter();   // 접속 시 잡담 1개(t15 §1)
 setInterval(() => { tick(1); renderLive(); }, 1000);
 let autosaveTimer = setInterval(save, 5000);
 window.addEventListener("beforeunload", save);

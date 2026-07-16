@@ -60,6 +60,11 @@ function checkCloakUnlocks() {
       needsFullRender = true;
     }
   }
+  // 전 6트랙 Lv.99 달성(t15 §5 엔드게임 대사) — 마스터리·전설 승급과 무관, "영업왕" 업적과 동일 조건
+  if (state.story && state.story.flags && !state.story.flags.all99 && CLOAKS.list.every(c => state.cloaks.owned[c.track])) {
+    state.story.flags.all99 = true;
+    if (!settling && typeof fireDialogue === "function") fireDialogue("전스킬99", ENDGAME_LINES);
+  }
   for (const c of CLOAKS.list) {
     if (!state.cloaks.owned[c.track] || state.cloaks.legendary[c.track]) continue;
     if (typeof masteryPct === "function" && masteryPct(c.track) >= 100) {   // maxTrackLv>=99는 cloakOwned가 이미 보증

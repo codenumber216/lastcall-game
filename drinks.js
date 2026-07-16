@@ -41,5 +41,8 @@ const DRINKS = {
   "벚꽃주":     { name: "벚꽃주",     effect: "명성 획득 ×1.25",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
   "시원한라거": { name: "시원한 라거", effect: "자금 획득 ×1.2",               series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
   "수확와인":   { name: "수확 와인",   effect: "전 스킬 XP +30%",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
-  "따뜻한뱅쇼": { name: "따뜻한 뱅쇼", effect: "폭풍 무효(사냥 정지·던전 차단 해제)", series: "시즌", mat: {}, brewSeconds: 4 * 3600, buff: { kind: "other" }, brewable: false }
+  "따뜻한뱅쇼": { name: "따뜻한 뱅쇼", effect: "폭풍 무효(사냥 정지·던전 차단 해제)", series: "시즌", mat: {}, brewSeconds: 4 * 3600, buff: { kind: "other" }, brewable: false },
+  // 회상의 술 2종(t22-B, 미구현 12건 #9=A) — 신병(그 트랙 로스터 최고Lv 미만 용병) XP 배율. 양조 가능(brewable 기본 true). 주점 5단계부터 노출.
+  "약한회상주": { name: "약한 회상주", effect: "신병 XP +200%", series: "회상", mat: { 약수: 5, 꿀: 3 }, brewSeconds: 6 * 3600, buff: { kind: "other" }, brewReqLv: 40, stageMin: 5 },
+  "진한회상주": { name: "진한 회상주", effect: "신병 XP +500%", series: "회상", mat: { 산삼: 2, 약수: 5 }, brewSeconds: 3 * 3600, buff: { kind: "other" }, brewReqLv: 60, stageMin: 5 }
 };
