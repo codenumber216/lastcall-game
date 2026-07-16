@@ -1930,11 +1930,12 @@ function tickBrewSlots(dtSec) {
         slot.cooldownSec = (FERMENTATION.explosion.cleanup_min * 60) / TIME_SCALE;
         break;
       }
+      if ((state.drinks[id] || 0) < BUFF.consume) needsFullRender = true;   // 버프 소비 경계(재고 0→유) 통과 → 버프 셀렉트 옵션 재구성 필요(QA 버그: 온보딩4단계)
       state.drinks[id] = (state.drinks[id] || 0) + 1;
       playSfx("sfx_brew_done");
       // 망토(술도사 앞치마, 전설승급 시 강화) + 마스터리 75%(+15%p): 확률로 +1병(창고 여유분 한정)
       const doubleChance = cloakBrewDoubleChance() + (masteryPct("양조") >= 75 ? 0.15 : 0);
-      if (Math.random() < doubleChance && (state.drinks[id] || 0) < STOCK_MAX) state.drinks[id]++;
+      if (Math.random() < doubleChance && (state.drinks[id] || 0) < STOCK_MAX) { if ((state.drinks[id] || 0) < BUFF.consume) needsFullRender = true; state.drinks[id]++; }
       addSkillXp(slot.charId, "양조", brewingXpForLevel(skillLv(slot.charId, "양조")));  // 양조 XP 적립(추가 병은 XP 미포함)
       slot.progressSec -= oneBottleSec;
     }
