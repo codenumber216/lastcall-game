@@ -66,7 +66,7 @@ const PETS = {
     { id: "방패 고슴도치", specialty: "방어", effect: "습격 피해 -5%",  g: "combat_survive", v: 0.05, gate: { type: "skill", skill: "전투", lv: 70 } },
     { id: "함정 거미",   specialty: "함정", effect: "전투력 +20% (함정 피해)", g: "combat_atk", v: 0.20, gate: { type: "skill", skill: "전투", lv: 60 } },
     { id: "끈기 거북",   specialty: "범용", effect: "오프라인 효율 +5%", g: "offline", v: 0.05, gate: { type: "offline_total", threshold_h: 100 } }, // 오프라인 누적 100시간 · v=0.05(효율 +5%p, applyOffline 소비)
-    { id: "황금 꿀벌",   specialty: "양조", effect: "술 재료 +20% (예정)", g: null, v: 0,            gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } }, // 양조 재료 절감 그룹 미존재 → (예정)
+    { id: "황금 꿀벌",   specialty: "양조", effect: "양조 재료 -20%", g: "brew_mat", v: 0.20,        gate: { type: "dual", a: { skill: "양조", lv: 70 }, b: { skill: "조달", lv: 70 } } }, // 풍양 거품(t17 §6-4)이 brew_mat 그룹 신설 → 연쇄 해제. 상한 -50%(풍양0.15+꿀벌0.20=0.35)
     { id: "원정 군마",   specialty: "원정", effect: "원정 시간 -20%",   g: null, v: 0, gate: { type: "expedition_count", n: 30 } }, // t30: 원정 30회 완료. 시간 -20% 코드 특수 연결
     { id: "곰 용병",     specialty: "전설", effect: "전 스킬 +5%",      g: "all_skill", v: 0.05, gate: { type: "raidTier", tier: 6 } },
     { id: "접객 고양이", specialty: "접객", effect: "손님 만족 +8%",   g: null, v: 0, gate: { type: "satisfaction_gauge", v: 90 } }, // t27: 만족도 게이지 90 → baseline +8(코드 특수 연결)

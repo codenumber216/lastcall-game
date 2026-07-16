@@ -9,8 +9,9 @@
      · 레벨업 비용 = base_qty × floor(1.15^Lv) (지수 증가로 페이싱). 레벨 무한.
      · 가마솥 해금 = 주점 단계 도달(World2→3단계 · World3→4단계 · World4→5단계).
 
-   구현 15종 / 보류 1종(융합=메타 후속). 외상(credit)·시간(offline)·행운(희귀드롭 t31)은 배선 완료.
-   물약(vial)·거품 합성(fusion)은 t17 §5·§6대로 전체 보류(미게시).
+   레벨형 거품 15종 확정(구 "보류 1종(융합)" 표기는 폐기 — 융합은 §6대로 하단 FUSION 블록에 별도 구현,
+   레벨 없는 보유형이라 bubbles 배열에 안 넣음). 외상(credit)·시간(offline)·행운(희귀드롭 t31)은 배선 완료.
+   물약(vial, t17 §5)은 VIALS 블록으로 구현 완료. 거품 합성(fusion, t17 §6)은 FUSION 블록으로 구현 완료.
    ============================================================================ */
 const ALCHEMY = {
   cost_growth: 1.15,
@@ -37,7 +38,7 @@ const ALCHEMY = {
     { id: "만물",   cauldron: "노랑", group: "xp_all",         perLv: 0.003, base: { 쌀: 5 },         effect: "전 스킬 XP" },
     { id: "시간",   cauldron: "노랑", group: "offline_min",    perLv: 3,     base: { 약수: 5 },       effect: "오프라인 시간", min: true },   // offlineExtendHours가 분으로 소비
     { id: "행운",   cauldron: "노랑", group: "rare_drop",       perLv: 0.004, base: { 꿀: 5 },         effect: "희귀 드롭" }   // tickGathering 희귀재료 배수(luckBonus)
-    // ⏸ 보류(미게시): 융합(메타). SSOT signature_alchemy_cauldron.bubbles 참조
+    // 융합 거품(레벨 없는 보유형 4종)은 이 배열 밖 FUSION 블록에 별도 구현(t17 §6)
   ]
 };
 const CAULDRON_BY_COLOR = {}; ALCHEMY.cauldrons.forEach(c => CAULDRON_BY_COLOR[c.color] = c);
@@ -46,9 +47,10 @@ const BUBBLE_BY_ID = {}; ALCHEMY.bubbles.forEach(b => BUBBLE_BY_ID[b.id] = b);
 /* ── 상태/헬퍼 ─────────────────────────────────────────────────────────────── */
 function alchemyCauldronUnlocked(color) { const c = CAULDRON_BY_COLOR[color]; return c && state.tavernStage >= c.stage_min; }
 function bubbleLevel(id) { return (state.alchemy && state.alchemy.bubbles[id]) || 0; }
-function bubbleCost(b, lv) {                                   // lv→lv+1 비용 = base × floor(1.15^lv)
+function bubbleCost(b, lv) {                                   // lv→lv+1 비용 = base × floor(1.15^lv) × (시공 거품 -15%, floor·최소1)
   const mult = Math.floor(Math.pow(ALCHEMY.cost_growth, lv));
-  const out = {}; for (const m in b.base) out[m] = b.base[m] * mult; return out;
+  const fc = fusionOwned("시공 거품") ? 0.85 : 1;   // t17 §6 hook: bubble_cost_mult
+  const out = {}; for (const m in b.base) out[m] = Math.max(1, Math.floor(b.base[m] * mult * fc)); return out;
 }
 function alchemyCostText(cost) { return Object.entries(cost).map(([k, v]) => `${k} ${v}`).join("·"); }
 function bubbleEffectPct(b, lv) { return b.perLv * lv * 100; }
@@ -125,3 +127,38 @@ function dropVial(vialName) {
   else log(`⚗️ ${vialName} 투하 (${v.material} -1) — 누적 ${state.vials[vialName]}`);
   render();
 }
+
+/* ── 융합 거품(거품 합성 메타) — t17 §6 확정(2026-07-16). SSOT: signature_alchemy_cauldron.fusion.
+   가마솥별 고정 조합 1개씩(총 4종). 원료 거품 2종 각 Lv.50+ && 비용 충족 → 합성(100% 성공, 원료 레벨 비소비).
+   레벨 없는 보유형(1회·영구). 효과는 전부 질적/곱연산 — 전역 캡(가산 그룹) 미참여. ==================== */
+const FUSION = {
+  recipes: [
+    { id: "광전사 거품", cauldron: "빨강", sources: ["취권", "명사수"], sourceLv: 50, cost: { 자금: 20000, 마석가루: 50 }, effect: "습격 격퇴·던전 클리어 보상(자금·재료) ×1.25" },
+    { id: "풍양 거품",   cauldron: "초록", sources: ["풍년", "발효"],   sourceLv: 50, cost: { 자금: 20000, 전설홉: 10 }, effect: "양조 재료 소비 -15%" },
+    { id: "금고 거품",   cauldron: "파랑", sources: ["황금", "입소문"], sourceLv: 50, cost: { 자금: 20000, 유물: 5 },   effect: "의뢰 보상(자금·명성) ×1.2" },
+    { id: "시공 거품",   cauldron: "노랑", sources: ["시간", "만물"],   sourceLv: 50, cost: { 자금: 20000, 산삼: 10 },  effect: "거품 레벨업 비용 -15%" }
+  ]
+};
+const FUSION_BY_ID = {}; FUSION.recipes.forEach(f => FUSION_BY_ID[f.id] = f);
+
+function fusionOwned(id) { return !!(state.alchemy && state.alchemy.fused && state.alchemy.fused[id]); }
+function fusionSourcesReady(f) { return f.sources.every(s => bubbleLevel(s) >= f.sourceLv); }
+function fusionCanPay(cost) { for (const m in cost) { const have = m === "자금" ? state.funds : (state.materials[m] || 0); if (have < cost[m]) return false; } return true; }
+function fusionPay(cost) { for (const m in cost) { if (m === "자금") state.funds -= cost[m]; else state.materials[m] = (state.materials[m] || 0) - cost[m]; } }
+function fuseBubble(id) {
+  const f = FUSION_BY_ID[id]; if (!f) return;
+  if (!alchemyCauldronUnlocked(f.cauldron)) { log(`${CAULDRON_BY_COLOR[f.cauldron].domain} 가마솥이 아직 해금되지 않았습니다.`); render(); return; }
+  if (fusionOwned(id)) { log(`이미 ${id}을(를) 보유 중입니다.`); render(); return; }
+  if (!fusionSourcesReady(f)) { log(`${id} 합성 조건 미충족: ${f.sources.join("·")} 각 Lv.${f.sourceLv} 필요.`); render(); return; }
+  if (!fusionCanPay(f.cost)) { log(`${id} 합성 재료 부족: ${alchemyCostText(f.cost)}`); render(); return; }
+  fusionPay(f.cost);
+  state.alchemy.fused[id] = true;
+  log(`⚗️✨ ${id} 합성 성공! ${f.effect}`);
+  render();
+}
+
+// 소비처 훅(t17 §6-2). 전부 곱연산·질적 — 가산 그룹 아님(전역 캡 미참여).
+function fusionLootMult() { return fusionOwned("광전사 거품") ? 1.25 : 1; }      // 습격·던전 자금·재료(명성 제외)
+function fusionOrderMult() { return fusionOwned("금고 거품") ? 1.2 : 1; }        // 의뢰 자금·명성
+// 양조 재료 절감 그룹(brew_mat) — 풍양 거품(0.15) + 황금 꿀벌 펫(0.20, equippedPetBonusAll) 가산, 상한 0.50
+function brewMatSaving() { return Math.min(0.50, (fusionOwned("풍양 거품") ? 0.15 : 0) + equippedPetBonusAll("brew_mat")); }

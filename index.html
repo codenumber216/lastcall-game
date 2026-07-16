@@ -553,7 +553,7 @@ function freshState() {
     smithing: { charId: null, part: SMITHING.parts[0], grade: "일반", progressSec: 0 },  // 대장일 슬롯(장비 제작)
     expedition: { charId: null, dispatch: EXPEDITION.dispatches[0].name, remainingSec: 0, totalSec: 0, active: false, completedCount: 0 },  // 원정 파견
     distillery: { level: 0, slots: [] },  // 자동 증류탑(레벨 0=미건립, 슬롯=샘플 데이터 보유)
-    alchemy: { bubbles: {} },  // 가마솥 거품 { 거품id: lv } — 영구 가산 버프(재료 투입으로 즉시 레벨업)
+    alchemy: { bubbles: {}, fused: {} },  // 가마솥 거품 { 거품id: lv } 영구 가산 + fused{융합id:true} 계정 영구 보유(t17 §6)
     stats: { STR: 0, DEX: 0, INT: 0, VIT: 0, CHA: 0 },  // 계정 스탯 pt(t17 §5, v1 유일 소스=물약)
     vials: {},  // 특제주 누적 투하량 { 물약명: 개수 } — 5/20/50에서 실버/골드/플래티넘
     cloaks: { owned: {}, legendary: {}, omni: false },  // 명예의 망토 { 트랙: true } — Lv.99 획득, legendary=마스터리100% 승급, omni=6트랙 전설(t33)
@@ -650,7 +650,7 @@ function kingdomDonate(kindArr, id) {
    계정(영지) 단위: 카드 보유·세트·펫 도감 / 용병 단위: 펫 장착. */
 const CARD_BY_ID = {}; CARDS.list.forEach(c => CARD_BY_ID[c.id] = c);
 const PET_BY_ID  = {}; PETS.list.forEach(p => PET_BY_ID[p.id] = p);
-const GROUP_LABEL = { gather_rate:"채집", brew_speed:"양조속도", combat_atk:"전투력", combat_survive:"생존", rep_gain:"명성", funds_gain:"자금", satisfaction:"만족", offline:"오프라인", all_skill:"전 스킬", "xp_조달":"조달 XP", "xp_전투":"전투 XP", xp_all:"전 스킬 XP" };
+const GROUP_LABEL = { gather_rate:"채집", brew_speed:"양조속도", combat_atk:"전투력", combat_survive:"생존", rep_gain:"명성", funds_gain:"자금", satisfaction:"만족", offline:"오프라인", all_skill:"전 스킬", "xp_조달":"조달 XP", "xp_전투":"전투 XP", xp_all:"전 스킬 XP", brew_mat:"양조재료" };
 function groupEffLabel(g, v) { return g ? `${GROUP_LABEL[g] || g} +${Math.round(v * 100)}%` : "도감 전용"; }
 
 function cardOwned(name) { return (state.cards[name] || 0) >= 1; }
@@ -1079,7 +1079,7 @@ function resolveRaid() {
   const enemy = (et.power.min + Math.random() * (et.power.max - et.power.min)) * enemyPowerMult();
   const ratio = enemy > 0 ? ally / enemy : 99;
   if (ratio >= 1.0) {                                                        // 격퇴(승)
-    const funds = Math.round((et.funds.min + Math.random() * (et.funds.max - et.funds.min)) * fundsGainMult());
+    const funds = Math.round((et.funds.min + Math.random() * (et.funds.max - et.funds.min)) * fundsGainMult() * fusionLootMult());   // 광전사 거품 ×1.25(t17 §6, 명성 제외)
     state.funds += funds;
     state.reputation += Math.round(COMBAT.rep_by_tier[tier] * repGainMult());
     distributeCombatXp(tier, false);
@@ -1224,17 +1224,17 @@ function resolveDungeonRun() {
   for (let f = 1; f <= d.floors; f++) {
     if (power >= floorEnemyPower(d, f)) { reached = f; if (f === d.floors) bossCleared = true; } else break;
   }
-  const rm = clearCountRewardMult(d.name);
+  const rm = clearCountRewardMult(d.name), lm = fusionLootMult();   // 광전사 거품 ×1.25(t17 §6, 자금·재료·명성 제외)
   let funds = 0, matTxt = "";
   const normalFloors = Math.min(reached, d.floors - 1);   // 보스층 전까지가 일반 층
   for (let f = 1; f <= normalFloors; f++) {
-    funds += Math.round(d.rec_power * DUNGEON.rewards.floor.funds_mult / d.floors * rm);
-    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.floor.material * rm), DUNGEON.rewards.floor.material_types);
+    funds += Math.round(d.rec_power * DUNGEON.rewards.floor.funds_mult / d.floors * rm * lm);
+    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.floor.material * rm * lm), DUNGEON.rewards.floor.material_types);
   }
   let cardTxt = "";
   if (bossCleared) {
-    funds += Math.round(d.rec_power * DUNGEON.rewards.boss.funds_mult * rm);
-    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.boss.material * rm), DUNGEON.rewards.boss.material_types);
+    funds += Math.round(d.rec_power * DUNGEON.rewards.boss.funds_mult * rm * lm);
+    matTxt += giveDungeonMaterials(d, Math.round(DUNGEON.rewards.boss.material * rm * lm), DUNGEON.rewards.boss.material_types);
     state.dungeon.clears[d.name] = (state.dungeon.clears[d.name] || 0) + 1;
     // 100회 클리어 → 그 던전 세트 전설 변형 자동 해금(t26 §6.5, 추가 비용 없음)
     const sdefLegend = EQUIP_SET_BY_DUNGEON[d.name];
@@ -1846,8 +1846,8 @@ function completeOrder(i) {
     for (const id in state.drinks) { if (need <= 0) break; const take = Math.min(need, state.drinks[id]); state.drinks[id] -= take; need -= take; }
   }
   const count = state.orders.repeatCount[o.key] = (state.orders.repeatCount[o.key] || 0) + 1;
-  const mult = repeatMult(count), r = ORDERS.reward_by_tier[o.tier];
-  const gf = Math.round(r.funds * mult * fundsGainMult()), gr = Math.round(r.rep * mult * repGainMult());
+  const mult = repeatMult(count), r = ORDERS.reward_by_tier[o.tier], om = fusionOrderMult();   // 금고 거품 ×1.2(t17 §6)
+  const gf = Math.round(r.funds * mult * fundsGainMult() * om), gr = Math.round(r.rep * mult * repGainMult() * om);
   state.funds += gf; state.reputation += gr;
   let matTxt = "";
   if (r.material) for (const m in r.material) { const add = Math.floor(r.material[m] * mult * getterMult()); state.materials[m] = Math.min(MAT_CAP, (state.materials[m] || 0) + add); matTxt += `·${m} +${add}`; }   // 90% 전 획득 x1.15
@@ -1942,11 +1942,13 @@ function tickBrewSlots(dtSec) {
 }
 
 function hasMaterials(drink) {
-  for (const mat in drink.mat) if ((state.materials[mat] || 0) < drink.mat[mat]) return false;
+  const cut = 1 - brewMatSaving();   // 풍양 거품 + 황금 꿀벌 펫(t17 §6-4), 상한 -50%
+  for (const mat in drink.mat) if ((state.materials[mat] || 0) < drink.mat[mat] * cut) return false;
   return true;
 }
 function payMaterials(drink) {
-  for (const mat in drink.mat) state.materials[mat] = (state.materials[mat] || 0) - drink.mat[mat];
+  const cut = 1 - brewMatSaving();
+  for (const mat in drink.mat) state.materials[mat] = (state.materials[mat] || 0) - drink.mat[mat] * cut;
 }
 
 
@@ -2184,6 +2186,9 @@ function load() {
       if (!BUBBLE_BY_ID[id]) continue;                         // 미존재/보류 거품 무시
       const lv = saved.alchemy.bubbles[id];
       if (typeof lv === "number" && lv > 0) state.alchemy.bubbles[id] = Math.floor(lv);
+    }
+    if (saved.alchemy.fused && typeof saved.alchemy.fused === "object") {
+      for (const id in saved.alchemy.fused) { if (FUSION_BY_ID[id] && saved.alchemy.fused[id]) state.alchemy.fused[id] = true; }
     }
   }
   if (saved.stats && typeof saved.stats === "object") {
@@ -2739,9 +2744,29 @@ function renderAlchemy() {
         </div></div>`;
     });
   }
+  // 융합 거품(합성 메타) — t17 §6. 주점 5단계(자치 도시) 해금, 특제주와 동일 시점.
+  html += `<div class="gather-sub" style="margin:10px 0 4px"><b>⚗️✨ 융합</b>${vialsUnlocked() ? "" : ` <span style="color:var(--mute)">🔒 주점 ${VIALS.unlock_stage}단계 해금</span>`}</div>`;
+  if (vialsUnlocked()) {
+    FUSION.recipes.forEach(f => {
+      const owned = fusionOwned(f.id), ready = fusionSourcesReady(f), canPay = fusionCanPay(f.cost);
+      const progress = f.sources.map(s => `${s} ${bubbleLevel(s)}/${f.sourceLv}`).join(" · ");
+      const status = owned ? `✅ 보유 · ${f.effect}` : `${f.effect} (미보유)`;
+      let btnLabel = "합성", disabled = true, reason = "";
+      if (owned) { disabled = true; }
+      else if (!ready) { reason = `원료 미달(${progress})`; }
+      else if (!canPay) { reason = `재료 부족: ${alchemyCostText(f.cost)}`; }
+      else { disabled = false; }
+      html += `<div class="slot-row${owned ? " active" : ""}"><div class="slot-head"><span class="slot-name">${f.id}</span><span class="slot-status">${status}</span></div>
+        <div class="gather-sub" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <span style="color:var(--mute)">${owned ? "" : `${progress} · 비용 ${alchemyCostText(f.cost)}${reason ? " · " + reason : ""}`}</span>
+          ${owned ? "" : `<button class="fuse-btn" data-id="${f.id}"${disabled ? " disabled" : ""}>${btnLabel}</button>`}
+        </div></div>`;
+    });
+  }
   box.innerHTML = html;
   box.querySelectorAll(".alc-up").forEach(btn => btn.onclick = () => levelUpBubble(btn.dataset.id));
   box.querySelectorAll(".vial-drop").forEach(btn => btn.onclick = () => dropVial(btn.dataset.name));
+  box.querySelectorAll(".fuse-btn").forEach(btn => btn.onclick = () => fuseBubble(btn.dataset.id));
 }
 /* ── 명예의 망토 렌더 (cloaks.js 로직 사용) ─────────────────────────────────── */
 function renderCloaks() {
