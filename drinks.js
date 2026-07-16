@@ -35,5 +35,11 @@ const DRINKS = {
   "회복의약주":  { name: "회복의 약주",   effect: "전투 중 HP 회복",           series: "회복", mat: { 약초: 10, 꿀: 5 },          brewSeconds: 3  * 3600, duration_type: "raid", buff: { kind: "raid" } },
   "거인의흑맥주":{ name: "거인의 흑맥주", effect: "HP 최대치 +15%",            series: "강화", mat: { 보리: 15, 거인고기: 1 },    brewSeconds: 24 * 3600, buff: { kind: "other" } },
   "보리의정수":  { name: "보리의 정수",   effect: "전 스킬 +25% + 전투력 +30%", series: "전설", mat: { 슬라임정수: 1, 전설홉: 5 }, brewSeconds: 2  * 3600, buff: { kind: "other" } },
-  "왕국의축배":  { name: "왕국의 축배",   effect: "왕국 명성 획득 x2",         series: "전설", mat: { 전설홉: 10, 슬라임정수: 3, 거인고기: 2 }, brewSeconds: 6  * 3600, buff: { kind: "other" } }
+  "왕국의축배":  { name: "왕국의 축배",   effect: "왕국 명성 획득 x2",         series: "전설", mat: { 전설홉: 10, 슬라임정수: 3, 거인고기: 2 }, brewSeconds: 6  * 3600, buff: { kind: "other" } },
+  // 시즌 술 4종(t11 §2, 2026-07-16) — 시즌 상점 병 교환 전용. 양조 불가(brewable:false, 발효 슬롯 셀렉트 제외).
+  //   재고는 시즌 종료 후에도 보유·사용 가능. series "시즌" 동계열 중복 금지는 기존 isSeriesActive에 자동 합류.
+  "벚꽃주":     { name: "벚꽃주",     effect: "명성 획득 ×1.25",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
+  "시원한라거": { name: "시원한 라거", effect: "자금 획득 ×1.2",               series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
+  "수확와인":   { name: "수확 와인",   effect: "전 스킬 XP +30%",              series: "시즌", mat: {}, brewSeconds: 2 * 3600, buff: { kind: "other" }, brewable: false },
+  "따뜻한뱅쇼": { name: "따뜻한 뱅쇼", effect: "폭풍 무효(사냥·던전 차단 해제)", series: "시즌", mat: {}, brewSeconds: 4 * 3600, buff: { kind: "other" }, brewable: false }
 };
